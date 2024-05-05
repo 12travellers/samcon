@@ -489,53 +489,59 @@ class ReferenceMotion():
         joint_tensor = torch.stack((joint_pos, joint_vel), -1)
         return joint_tensor
         
+        
+        
+        
+        
+        
+        
     
-    def state_pos_vel(self, motion_ids, motion_times, real_fid0):
-        n = len(motion_ids)
-        n_key_links = len(self.key_links)
-        n_controllable_links = len(self.controllable_links)
-        device = self.device
+    # def state_pos_vel(self, motion_ids, motion_times, real_fid0):
+    #     n = len(motion_ids)
+    #     n_key_links = len(self.key_links)
+    #     n_controllable_links = len(self.controllable_links)
+    #     device = self.device
 
-        root_pos0 = torch.empty((n, 3), dtype=torch.float, requires_grad=False)
-        link_pos0 = torch.empty((n, n_key_links, 3), dtype=torch.float, requires_grad=False)
-        link_pos1 = torch.empty((n, n_key_links, 3), dtype=torch.float, requires_grad=False)
-        link_lin_vel = torch.empty((n, n_key_links, 3), dtype=torch.float, requires_grad=False)
+    #     root_pos0 = torch.empty((n, 3), dtype=torch.float, requires_grad=False)
+    #     link_pos0 = torch.empty((n, n_key_links, 3), dtype=torch.float, requires_grad=False)
+    #     link_pos1 = torch.empty((n, n_key_links, 3), dtype=torch.float, requires_grad=False)
+    #     link_lin_vel = torch.empty((n, n_key_links, 3), dtype=torch.float, requires_grad=False)
 
-        motion_len = self.motion_length[motion_ids]
-        num_frames = self.motion_n_frames[motion_ids]
-        dt = self.motion_dt[motion_ids]
+    #     motion_len = self.motion_length[motion_ids]
+    #     num_frames = self.motion_n_frames[motion_ids]
+    #     dt = self.motion_dt[motion_ids]
 
-        phase = np.clip(motion_times / motion_len, 0.0, 1.0)
-        fid0 = (phase * (num_frames - 1)).astype(int)
+    #     phase = np.clip(motion_times / motion_len, 0.0, 1.0)
+    #     fid0 = (phase * (num_frames - 1)).astype(int)
         
-        fid0 = np.asarray([real_fid0])
+    #     fid0 = np.asarray([real_fid0])
         
-        fid1 = np.minimum(fid0 + 1, num_frames - 1)
-        frac = np.minimum((motion_times - fid0 * dt) / dt, 1.)
+    #     fid1 = np.minimum(fid0 + 1, num_frames - 1)
+    #     frac = np.minimum((motion_times - fid0 * dt) / dt, 1.)
 
-        unique_ids = np.unique(motion_ids)
-        motion_ids = torch.from_numpy(motion_ids)
-        fid0 = torch.from_numpy(fid0)
-        fid1 = torch.from_numpy(fid1)
-        for uid in unique_ids:
-            ids, = torch.where(motion_ids == uid)
-            motion = self.motion[uid]
+    #     unique_ids = np.unique(motion_ids)
+    #     motion_ids = torch.from_numpy(motion_ids)
+    #     fid0 = torch.from_numpy(fid0)
+    #     fid1 = torch.from_numpy(fid1)
+    #     for uid in unique_ids:
+    #         ids, = torch.where(motion_ids == uid)
+    #         motion = self.motion[uid]
 
-            fid0_ = fid0[ids]
-            fid1_ = fid1[ids]
+    #         fid0_ = fid0[ids]
+    #         fid1_ = fid1[ids]
 
-            link_pos0[ids] = motion.pos[fid0_, :]
-            link_pos1[ids] = motion.pos[fid1_, :]
+    #         link_pos0[ids] = motion.pos[fid0_, :]
+    #         link_pos1[ids] = motion.pos[fid1_, :]
 
-            link_lin_vel[ids] = motion.lin_vel[fid0_, :]
+    #         link_lin_vel[ids] = motion.lin_vel[fid0_, :]
 
-        frac = torch.tensor(frac, device=device,  dtype=root_pos0.dtype).unsqueeze_(-1)
-        frac_ = frac[..., None]
+    #     frac = torch.tensor(frac, device=device,  dtype=root_pos0.dtype).unsqueeze_(-1)
+    #     frac_ = frac[..., None]
 
-        link_lin_vel = link_lin_vel.to(device)
-        link_pos0 = link_pos0.to(device)
-        link_pos1 = link_pos1.to(device)
+    #     link_lin_vel = link_lin_vel.to(device)
+    #     link_pos0 = link_pos0.to(device)
+    #     link_pos1 = link_pos1.to(device)
         
-        link_pos = ((1.0-frac_)*link_pos0).add_(frac_*link_pos1)
+    #     link_pos = ((1.0-frac_)*link_pos0).add_(frac_*link_pos1)
 
-        return link_pos, link_lin_vel
+    #     return link_pos, link_lin_vel

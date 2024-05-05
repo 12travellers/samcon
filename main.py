@@ -1,6 +1,5 @@
 from isaacgym import gymtorch
 from isaacgym import gymapi
-import isaacgym as gym
 import torch
 
 from env import Simulation
@@ -32,24 +31,26 @@ limits = [.1,.1,.1,
           .4,.2,.1,
           ]
 def get_noisy(joint_p, joint_q, reference):
+    joint_q2 = joint_q.clone().reshape(-1)
     noise = np.random.random(joint_q.shape[0]) # sample from [0, 1) uniform distribution
     for i in range(len(limits)): # transform to [-limit, limit)
         noise[i] = 2 * limits[i] * noise[i] - limits[i]
     
 
-    joint_q2 = joint_q + noise
+    joint_q2 = joint_q2 + noise
     while np.any(joint_q2 > np.pi):
         joint_q2[joint_q2 > np.pi] -= 2 * np.pi
     while np.any(joint_q2 < -np.pi):
         joint_q2[joint_q2 < -np.pi] += 2 * np.pi
 
- 
+    joint_q2.reshape_like(joint_q)
     return reference.state_joint_after_partial(joint_p, joint_q2)
 
 
 
 if __name__ == '__main__':
-    device = 'gpu:3'
+    device = 'cpu'
+    gym = gymapi.acquire_gym()
     compute_device_id, graphics_device_id = 3, 3
     num_envs = 50
     nSample, nSave = 1000, 100
@@ -119,24 +120,24 @@ if __name__ == '__main__':
     
     envs = []
     for i in range(num_envs):
-        envs.append(Simulation(sim, asset, reference.skeleton, i))
+        envs.append(Simulation(gym, sim, asset, reference.skeleton, i))
     
     gym.prepare_sim(sim)
     
     
     rounds = simulation_dt // sample_dt
-    root_tensor, link_tensor, joint_tensor = reference.state([0],0,0)
+    root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),0,0)
     root_tensor, link_tensor, joint_tensor = root_tensor[0], link_tensor[0], joint_tensor[0]
     best2 = [[root_tensor, joint_tensor], []]
     best = [best2 for i in range(nSave)]
-    for i in range(0, reference.motion_length[0]):
+    for i in range(0, reference.motion[0].pos.shape[0]):
         fid = i
         
-        root_tensor, link_tensor, joint_tensor = reference.state([0],0,fid)
+        root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),0,fid)
         root_tensor, link_tensor, joint_tensor = root_tensor[0], link_tensor[0], joint_tensor[0]
         
         joint_p, joint_q, root_pos, root_orient, root_lin_vel, root_ang_vel = \
-            reference.state_partial([0],0,fid)
+            reference.state_partial(np.asarray([0]),0,fid)
         joint_p, joint_q, root_pos, root_orient, root_lin_vel, root_ang_vel = \
             joint_p[0], joint_q[0], root_pos[0], root_orient[0], root_lin_vel[0], root_ang_vel[0]
         
@@ -145,8 +146,8 @@ if __name__ == '__main__':
             target_state = []
             for i in range(0, num_envs//nExtend):
                 for j in range(0, nExtend):
-                    envs[i*nExtend+j].overlap(best[id][j][0], best[id][j][1])
-                    target_state2 = get_noisy(joint_p, joint_q)
+                    envs[i*nExtend+j].overlap(best[id][0], best[id][1])
+                    target_state2 = get_noisy(joint_p, joint_q, reference)
                     target_state.append(target_state2)
                     envs[i*nExtend+j].act(target_state2, record=1)
                     

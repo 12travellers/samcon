@@ -7,23 +7,32 @@ from ref_motion import compute_motion
 from scipy.spatial.transform import Rotation as sRot
 
 class Simulation:
-    def __init__(self, sim, asset, skeleton, idk):
+    UP_AXIS = 2 
+    
+    def __init__(self, gym, sim, asset, skeleton, idk):
+        self.gym = gym
         self.sim = sim
         self.idk = idk
         self.skeleton = skeleton
         spacing = 2.0
         lower = gymapi.Vec3(-spacing, 0.0, -spacing)
         upper = gymapi.Vec3(spacing, spacing, spacing)
-        self.env = gym.create_env(sim, lower, upper, 8)
+        self.env = self.gym.create_env(sim, lower, upper, 8)
         
         start_pose = gymapi.Transform()
         start_pose.p = gymapi.Vec3(*self.vector_up(0.89))
         start_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 
-        self.actor_handle = gym.create_actor(self.env, asset, start_pose)
+        self.actor_handle = self.gym.create_actor(self.env, asset, start_pose)
         
         self.state = None
         self.trajectory = []
+        
+    def vector_up(self, val: float, base_vector=None):
+        if base_vector is None:
+            base_vector = [0., 0., 0.]
+        base_vector[self.UP_AXIS] = val
+        return base_vector
 
         
     def overlap(self, old_state, old_traj):
@@ -32,7 +41,7 @@ class Simulation:
         self.trajectory = old_traj   
         root_tensor, joint_tensor = old_state[0], old_state[1]
         
-        actor_ids = [self.actor_handle]
+        actor_ids = torch.from_numpy(np.asarray([self.actor_handle])).flatten()
         n_actor_ids = len(actor_ids)
         actor_ids = gymtorch.unwrap_tensor(actor_ids)
         self.gym.set_actor_root_state_tensor_indexed(self.sim,
@@ -53,7 +62,7 @@ class Simulation:
         
         len = self.state.numel()
         skeleton = self.skeleton
-        now_state = gym.acquire_dof_state_tensor(self.sim)[self.idk*len:self.idk*len+len]
+        now_state = self.gym.acquire_dof_state_tensor(self.sim)[self.idk*len:self.idk*len+len]
         now_state = gymtorch.wrap_tensor(now_state)
         
         for nid in range(len(skeleton.nodes)):
@@ -72,14 +81,22 @@ class Simulation:
         if record:
             self.trajectory += [target_state]
         
-        root_tensor, joint_tensor = target_state[0], target_state[1]        
-        actor_ids = [self.actor_handle]
+        root_tensor, joint_tensor = target_state[0], target_state[1]  
+        actor_ids = torch.from_numpy(np.asarray([self.actor_handle])).flatten()
         n_actor_ids = len(actor_ids)
         actor_ids = gymtorch.unwrap_tensor(actor_ids)
-        gym.set_dof_position_target_tensor_indexed(self.sim, joint_tensor, actor_ids, n_actor_ids)
+        self.gym.set_dof_position_target_tensor_indexed(self.sim, joint_tensor, actor_ids, n_actor_ids)
         
         
     def history(self):
+        _root_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)[self.idk]
+        root_tensor = gymtorch.wrap_tensor(_root_tensor)
+        
+        
+        _joint_tensor = self.gym.acquire_dof_state_tensor(self.sim)[self.idk*len:self.idk*len+len]
+        joint_tensor = gymtorch.wrap_tensor(_joint_tensor)
+        
+        self.state = [root_tensor, joint_tensor]
         return [self.state, self.trajectory]
         
         
@@ -103,7 +120,7 @@ class Simulation:
             q[0,controllable_links[i]] = \
                 sRot.from_euler("xyz",dcm,degrees=False).as_quat()
             t+=dofs[i]
-        _root_tensor = gym.acquire_actor_root_state_tensor(self.sim)
+        _root_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)[self.idk]
         root_tensor = gymtorch.wrap_tensor(_root_tensor)
         root_positions = root_tensor[:, 0:3]
         root_orientations = root_tensor[:, 3:7]
@@ -197,7 +214,7 @@ class Simulation:
         return error
 
     def compute_com_pos_vel(self, _pos, _vel):
-        properties = gym.get_actor_rigid_body_properties(self.env, self.actor_handle)
+        properties = self.gym.get_actor_rigid_body_properties(self.env, self.actor_handle)
         com_pos = torch.tensor([0,0,0])
         com_vel = torch.tensor([0,0,0])
         for i in range(len(properties)):
@@ -206,7 +223,7 @@ class Simulation:
         return com_pos, com_vel
     
     def compute_com(self):
-        body_state = gym.get_actor_rigid_body_states(self.env, self.actor_handle)
+        body_state = self.gym.get_actor_rigid_body_states(self.env, self.actor_handle)
         return self.compute_com_pos_vel(body_state['pose']['p'], body_state['vel']['linear'])
             
     def compute_balance_cost(self, target_motion, new_motion):

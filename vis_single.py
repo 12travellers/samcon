@@ -8,55 +8,17 @@ from ref_motion import ReferenceMotion
 from scipy.spatial.transform import Rotation as sRot
 from tqdm import tqdm
 
-# ["torso", "head", 
-#         "right_upper_arm", "right_lower_arm",
-#         "left_upper_arm", "left_lower_arm", 
-#         "right_thigh", "right_shin", "right_foot",
-#         "left_thigh", "left_shin", "left_foot"]
-limits = [.1,.1,.1,
-          
-          .2,.2,.2,
-          
-          .2,.2,.2,
-          .0,
-          
-          .2,.2,.2,
-          .0,
-          
-          .4,.4,.1,
-          .0,
-          .4,.2,.1,
-          
-          .4,.4,.1,
-          .0,
-          .4,.2,.1,
-          ]
-def get_noisy(joint_pos, joint_vel, reference):
-
-    joint_pos2 = joint_pos.clone().reshape(-1)
-    noise = np.random.random(joint_pos2.shape[0]) # sample from [0, 1) uniform distribution
-    for i in range(len(limits)): # transform to [-limit, limit)
-        noise[i] = 2 * limits[i] * noise[i] - limits[i]
-    
-    while torch.any(joint_pos2 > np.pi):
-        joint_pos2[joint_pos2 > np.pi] -= 2 * np.pi
-    while torch.any(joint_pos2 < -np.pi):
-        joint_pos2[joint_pos2 < -np.pi] += 2 * np.pi
-
-    joint_pos2 = joint_pos2.reshape(joint_pos.shape)
-    # return reference.state_joint_after_partial(joint_pos2, joint_vel)
-    return joint_pos2 #pos-driven pd control
-
 
 
 if __name__ == '__main__':
     device = 'cpu'
     gym = gymapi.acquire_gym()
-    compute_device_id, graphics_device_id = 3, 3
+    compute_device_id, graphics_device_id = 0, 0
     num_envs = 1 
     nSample, nSave = 1000, 100
     simulation_dt = 300
     sample_dt = 30
+    rounds = simulation_dt // sample_dt
     
     nExtend = nSample // nSave
         
@@ -71,8 +33,8 @@ if __name__ == '__main__':
     # set common parameters
     sim_params.dt = 1 / simulation_dt
     sim_params.substeps = 2
-    sim_params.up_axis = gymapi.UP_AXIS_Y
-    sim_params.gravity = gymapi.Vec3(0.0, -9.8, 0.0)
+    sim_params.up_axis = gymapi.UP_AXIS_Z
+    sim_params.gravity = gymapi.Vec3(0.0, 0.0, -9.8)
 
     # set PhysX-specific parameters
     sim_params.physx.use_gpu = False
@@ -87,14 +49,21 @@ if __name__ == '__main__':
     
     # configure the ground plane
     plane_params = gymapi.PlaneParams()
-    plane_params.normal = gymapi.Vec3(0, 1, 0) # y-up!
+    plane_params.normal = gymapi.Vec3(0, 0, 1) # z-up!
     plane_params.distance = 0
     plane_params.static_friction = 1
     plane_params.dynamic_friction = 1
     plane_params.restitution = 0
+    
+    
 
     # create the ground plane
     gym.add_ground(sim, plane_params)
+    
+    
+    # add viewer
+    viewer = gym.create_viewer(sim, gymapi.CameraProperties())
+    
     
     n_links, controllable_links = 15, [1, 2, 3, 4, 6, 7, 9, 10, 11, 12, 13, 14]
     dofs = [3, 3, 3, 1, 3, 1, 3, 1, 3, 3, 1, 3]
@@ -118,18 +87,12 @@ if __name__ == '__main__':
         envs.append(Simulation(gym, sim, asset, reference.skeleton, i))
     for ei in envs:
         ei.build_tensor()
+
     gym.prepare_sim(sim)
-        
-    
-    cam_props = gymapi.CameraProperties()
-    viewer = gym.create_viewer(sim, cam_props)
-    
-    
-    rounds = simulation_dt // sample_dt
+
     root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),0,0)
     root_tensor, link_tensor, joint_tensor = root_tensor[0], link_tensor[0], joint_tensor[0]
-    best2 = [[root_tensor, joint_tensor], []]
-    best = [best2 for i in range(nSave)]
+
     
     
     history_target = np.load('best.npy')
@@ -147,9 +110,9 @@ if __name__ == '__main__':
     # ROOT_TENSOR, JOINT_TENSOR = gymtorch.unwrap_tensor(ROOT_TENSOR), gymtorch.unwrap_tensor(JOINT_TENSOR)
          
     gym.set_actor_root_state_tensor(sim,
-        gymtorch.unwrap_tensor(JOINT_TENSOR))
-    gym.set_dof_state_tensor(sim,
         gymtorch.unwrap_tensor(ROOT_TENSOR))
+    gym.set_dof_state_tensor(sim,
+        gymtorch.unwrap_tensor(JOINT_TENSOR))
 
                 
     for fid in tqdm(range(TIME)):
@@ -158,7 +121,6 @@ if __name__ == '__main__':
             break
 
         target_state = []
-        ROOT_TENSOR, JOINT_TENSOR = [], []
         for i in range(0, num_envs):
             
             target_state2 = torch.from_numpy(history_target[fid])
@@ -172,7 +134,6 @@ if __name__ == '__main__':
                 
         target_state = gymtorch.unwrap_tensor(target_state)
         # simulating...
-        print('aaaaaaaaaaaaaaaaa')
         for k in range(rounds):
 
             print('aaaaaaaaaaaaaaaaa', k)
@@ -181,15 +142,11 @@ if __name__ == '__main__':
             gym.simulate(sim)
             gym.fetch_results(sim, True)
             
-            print('aaaaaaaaaaaaaaaaa')
             gym.step_graphics(sim)
-            print('aaaaaaaaaaaaaaaaa')
-            if(k==rounds-1):
+            if(k==rounds-1 or 1):
                 gym.draw_viewer(viewer, sim, True)
-            print('aaaaaaaaaaaaaaaaa')
-        
+            # gym.draw_viewer(viewer, sim, True)
             gym.sync_frame_time(sim)
-            # gym.viewer_camera_look_at(viewer, self.envs[tar_env], cam_pos, self.cam_target)
 
      
             

@@ -16,7 +16,7 @@ class Simulation:
         self.idk = idk
         self.skeleton = skeleton
         spacing = 2.0
-        lower = gymapi.Vec3(-spacing, 0.0, -spacing)
+        lower = gymapi.Vec3(-spacing, -spacing, 0.0)
         upper = gymapi.Vec3(spacing, spacing, spacing)
         self.env = self.gym.create_env(sim, lower, upper, 8)
         

@@ -38,30 +38,30 @@ class Simulation:
     def overlap(self, old_state, old_traj):
         self.state = old_state
         self.trajectory = old_traj   
+        self.dof_len = self.state[1].numel()//2 # joint_tensor
         
     
-    def cost(self, joint_p, joint_q, root_pos, root_orient, root_ang_vel, old_com_pos, old_com_vel):
+    def cost(self, candidate_p, candidate_q, root_pos, root_orient, root_ang_vel, old_com_pos, old_com_vel):
         self.old_root_ang_vel = root_ang_vel
         self.old_root_orient = root_orient
         self.old_com_pos, self.old_com_vel = old_com_pos, old_com_vel
         
-        self.com_pos, self.com_vel = self.compute_com_pos_vel()
+        self.com_pos, self.com_vel = self.compute_com()
         
-        len = self.state.numel()
         skeleton = self.skeleton
-        now_state = self.gym.acquire_dof_state_tensor(self.sim)[self.idk*len:self.idk*len+len]
-        now_state = gymtorch.wrap_tensor(now_state)
+        now_state = self.gym.acquire_dof_state_tensor(self.sim)
+        now_state = gymtorch.wrap_tensor(now_state).clone()[self.idk*self.dof_len:self.idk*self.dof_len+self.dof_len]
         
         for nid in range(len(skeleton.nodes)):
             pid = skeleton.parents[nid]
             if pid == -1:
-                joint_p[0, nid] = root_pos
-                joint_q[0, nid] = root_orient
+                candidate_p[nid] = root_pos
+                candidate_q[nid] = root_orient
             else:
-                joint_p[0, nid] *= 0
+                candidate_p[nid] *= 0
         
-        target_motion = compute_motion(30, self.skeleton, joint_q, joint_p)
-        now_motion = self.compute_motion_from_state(now_state, joint_p, joint_q)
+        target_motion = compute_motion(30, self.skeleton, candidate_q.unsqueeze(0), candidate_p.unsqueeze(0), early_stop=True)
+        now_motion = self.compute_motion_from_state(now_state, candidate_p, candidate_q)
         return self.compute_total_cost(target_motion, now_motion)
         
     def act(self, target_state, record=0):
@@ -77,12 +77,13 @@ class Simulation:
         
         
     def history(self):
-        _root_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)[self.idk]
-        root_tensor = gymtorch.wrap_tensor(_root_tensor)
+        _root_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
+        root_tensor = gymtorch.wrap_tensor(_root_tensor)[self.idk]
         
         
-        _joint_tensor = self.gym.acquire_dof_state_tensor(self.sim)[self.idk*len:self.idk*len+len]
-        joint_tensor = gymtorch.wrap_tensor(_joint_tensor)
+        _joint_tensor = self.gym.acquire_dof_state_tensor(self.sim)
+        joint_tensor = gymtorch.wrap_tensor(_joint_tensor)\
+            [self.idk*self.dof_len:self.idk*self.dof_len+self.dof_len]
         
         self.state = [root_tensor, joint_tensor]
         return [self.state, self.trajectory]
@@ -101,30 +102,30 @@ class Simulation:
         for i in range(0,len(controllable_links)):
             dcm = None
             if dofs[i] == 3:
-                dcm = state[t:t+2,1]
+                dcm = state[t:t+3,0]
             else:
-                dcm = [0,state[t][1],0]
+                dcm = [0,state[t][0],0]
             dcm = np.asarray(dcm)
-            q[0,controllable_links[i]] = \
-                sRot.from_euler("xyz",dcm,degrees=False).as_quat()
+            q[controllable_links[i]] = \
+                torch.from_numpy(sRot.from_euler("xyz",dcm,degrees=False).as_quat())
             t+=dofs[i]
-        _root_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)[self.idk]
-        root_tensor = gymtorch.wrap_tensor(_root_tensor)
-        root_positions = root_tensor[:, 0:3]
-        root_orientations = root_tensor[:, 3:7]
+        _root_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
+        root_tensor = gymtorch.wrap_tensor(_root_tensor)[self.idk]
+        root_positions = root_tensor[0:3]
+        root_orientations = root_tensor[3:7]
         
         self.root_orient = root_orientations
-        self.root_ang_vel = root_tensor[:, 10:13]
+        self.root_ang_vel = root_tensor[10:13]
         
         for nid in range(len(skeleton.nodes)):
             pid = skeleton.parents[nid]
             if pid == -1:
-                p[:, nid] = root_positions
-                q[:, nid] = root_orientations
+                p[nid] = root_positions
+                q[nid] = root_orientations
             else:
-                p[:, nid] *= 0
+                p[nid] *= 0
             
-        return compute_motion(30, self.skeleton, q, p)
+        return compute_motion(30, self.skeleton, q.unsqueeze(0), p.unsqueeze(0), early_stop=True)
         
         
         
@@ -143,7 +144,7 @@ class Simulation:
         root_cost = self.compute_root_cost()
         ee_cost = self.compute_ee_cost(target_motion, new_motion)
         balance_cost = self.compute_balance_cost(target_motion, new_motion)
-        com_cost = self.compute_com_cost(target_motion, new_motion)
+        com_cost = self.compute_com_cost()
         total_cost = pose_w * pose_cost + \
                      root_w * root_cost + \
                      ee_w * ee_cost + \
@@ -206,12 +207,13 @@ class Simulation:
         com_pos = torch.tensor([.0,.0,.0])
         com_vel = torch.tensor([.0,.0,.0])
         for i in range(len(properties)):
-            com_pos += properties[i].mass * _pos[i]
-            com_vel += properties[i].mass * _vel[i]
+            for j in range(0,3):
+                com_pos[j] += properties[i].mass * _pos[i][j]
+                com_vel[j] += properties[i].mass * _vel[i][j]
         return com_pos, com_vel
     
     def compute_com(self):
-        body_state = self.gym.get_actor_rigid_body_states(self.env, self.actor_handle)
+        body_state = self.gym.get_actor_rigid_body_states(self.env, self.actor_handle, gymapi.STATE_ALL)
         return self.compute_com_pos_vel(body_state['pose']['p'], body_state['vel']['linear'])
             
     def compute_balance_cost(self, target_motion, new_motion):
@@ -219,9 +221,6 @@ class Simulation:
         error = 0.0
         sim_com_pos, sim_com_vel = self.com_pos, self.com_vel
         kin_com_pos, kin_com_vel = self.old_com_pos, self.old_com_vel
-        end_effectors = self._cfg.end_effectors
-        sim_ps, _, _, _ = self._sim_agent.get_link_pQvw(end_effectors)
-        kin_ps, _, _, _ = self._kin_agent.get_link_pQvw(end_effectors)
 
         for nid in self.ees:
             sim_planar_vec = sim_com_pos - target_motion.pos[0,nid] 

@@ -147,7 +147,9 @@ if __name__ == '__main__':
             # setting all to source status
             ROOT_TENSOR, JOINT_TENSOR = [], []
             for i in range(0, num_envs//nExtend):
-                for j in range(0, nExtend):
+                for j in range(0, nExtend):                  
+                    envs[i*nExtend+j].overlap(best[id][0], best[id][1])
+
                     root_tensor, joint_tensor = best[id][0][0], best[id][0][1]
                     ROOT_TENSOR += [root_tensor.unsqueeze(0).numpy()]
                     JOINT_TENSOR += [joint_tensor.numpy()]
@@ -169,7 +171,6 @@ if __name__ == '__main__':
                     envs[i*nExtend+j].act(target_state2, record=1)
             target_state = np.concatenate([target_state], axis=0)
             target_state = torch.from_numpy(target_state)
-            print(target_state.shape)
             gym.set_dof_position_target_tensor(sim, gymtorch.unwrap_tensor(target_state))
             # simulating...
             for k in range(rounds):
@@ -194,7 +195,7 @@ if __name__ == '__main__':
                                              root_ang_vel, com_pos, com_vel)
                                 ,envs[i].history()])
         # store nSample better ones
-        best = sorted(results, lambda x:x[0])[:nSample]
+        best = sorted(results, key=lambda x:x[0])[:nSample]
         
         
     #save history of targets in pd-control

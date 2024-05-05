@@ -58,7 +58,8 @@ def load_mjcf(filename: str):
         rot = torch.from_numpy(np.array(r, dtype=float))
     )
 
-def compute_motion(fps:int, skeleton: Skeleton, local_q, local_p):
+def compute_motion(fps:int, skeleton: Skeleton, local_q, local_p, early_stop = False):
+
     orient = []
     pos = []
     for nid in range(len(skeleton.nodes)):
@@ -74,6 +75,18 @@ def compute_motion(fps:int, skeleton: Skeleton, local_q, local_p):
 
     orient = torch.stack(orient, 1) # N_frames x N_links x 4
     pos = torch.stack(pos, 1)       # N_frames x N_links x 3
+    
+    if(early_stop):
+        return Motion(
+            fps=fps,
+            pos=pos.to(torch.float),
+            orient=orient.to(torch.float),
+            ang_vel=None,
+            lin_vel=None,
+            local_q=None,
+            local_p=None,
+            local_vel=None,
+        )
 
     dq = quatmultiply(orient[1:], quatconj(orient[:-1]))
     ang_vel = quat2expmap(dq).mul_(fps)

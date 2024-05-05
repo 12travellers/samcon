@@ -8,6 +8,8 @@ def rotatepoint(q: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
     # return quatmultiply(quatmultiply(q, q_v), quatconj(q))[:-1]
     #
     # https://fgiesen.wordpress.com/2019/02/09/rotating-a-single-vector-using-a-quaternion/
+    q = q.double()
+    v = v.double()
     q_r = q[...,3:4]
     q_xyz = q[...,:3]
     t = 2*torch.linalg.cross(q_xyz, v)

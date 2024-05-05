@@ -59,10 +59,10 @@ class Simulation:
         for nid in range(len(skeleton.nodes)):
             pid = skeleton.parents[nid]
             if pid == -1:
-                joint_p[:, nid] = root_pos
-                joint_q[:, nid] = root_orient
+                joint_p[0, nid] = root_pos
+                joint_q[0, nid] = root_orient
             else:
-                joint_p[:, nid] *= 0
+                joint_p[0, nid] *= 0
         
         target_motion = compute_motion(30, self.skeleton, joint_q, joint_p)
         now_motion = self.compute_motion_from_state(now_state, joint_p, joint_q)

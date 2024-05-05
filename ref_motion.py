@@ -477,11 +477,18 @@ class ReferenceMotion():
         link_pos = ((1.0-frac_)*link_pos0).add_(frac_*link_pos1)
         link_orient = slerp(link_orient0, link_orient1, frac_)
         joint_p = ((1.0-frac_)*joint_p0).add_(frac_*joint_p1)
-        joint_q = slerp(joint_q0, joint_q1, frac_)
+        joint_q = slerp(joint_q0, joint_q1, frac_) #slerp returns euler in 3 dim
         joint_pos = (quat2expmap(joint_q) + joint_p).view(joint_q.size(0), -1)[:, self.dofs]
         joint_vel = joint_vel.view(joint_q.size(0), -1)[:, self.dofs]
 
         return joint_p, joint_q, root_pos, root_orient, root_lin_vel, root_ang_vel
+    
+    def state_joint_after_partial(self, joint_p, joint_q):
+        joint_pos = (quat2expmap(joint_q) + joint_p).view(joint_q.size(0), -1)[:, self.dofs]
+        joint_vel = joint_vel.view(joint_q.size(0), -1)[:, self.dofs]
+        joint_tensor = torch.stack((joint_pos, joint_vel), -1)
+        return joint_tensor
+        
     
     def state_pos_vel(self, motion_ids, motion_times, real_fid0):
         n = len(motion_ids)

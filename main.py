@@ -156,12 +156,16 @@ if __name__ == '__main__':
                 gym.simulate(sim)
                 
             
-            _pos, _vel = reference.state_pos_vel([0],0,fid)
+            #not truncated, every information is here(for p/q, except root)
+            _pos, _vel = reference.motion[0].pos[fid:fid+1],\
+                reference.motion[0].lin_vel[fid:fid+1]
+            candidate_p, candidate_q = reference.motion[0].local_p[fid:fid+1], \
+                reference.motion[0].local_q[fid:fid+1]
+                
             com_pos, com_vel = envs[0].properties(_pos, _vel)
             
-            
             for i in range(0, num_envs):
-                results.append([envs[i].cost(joint_p.clone(), joint_q.clone(), 
+                results.append([envs[i].cost(candidate_p.clone(), candidate_q.clone(), 
                                              root_pos, root_orient,
                                              root_ang_vel, com_pos, com_vel)
                                 ,envs[i].history()])
@@ -169,5 +173,6 @@ if __name__ == '__main__':
         best = sorted(results, lambda x:x[0])[:nSample]
         
     np.save('best.npy', np.asarray(best[0][1]))
+    #save history of targets in pd-control
         
     gym.destroy_sim(sim)

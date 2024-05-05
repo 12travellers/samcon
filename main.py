@@ -44,7 +44,7 @@ def get_noisy(joint_p, joint_q, reference):
         joint_q2[joint_q2 < -np.pi] += 2 * np.pi
 
  
-    return reference.state3(joint_p, joint_q2)
+    return reference.state_joint_after_partial(joint_p, joint_q2)
 
 
 
@@ -131,10 +131,14 @@ if __name__ == '__main__':
     best = [best2 for i in range(nSave)]
     for i in range(0, reference.motion_length[0]):
         fid = i
+        
         root_tensor, link_tensor, joint_tensor = reference.state([0],0,fid)
         root_tensor, link_tensor, joint_tensor = root_tensor[0], link_tensor[0], joint_tensor[0]
-        joint_p, joint_q = reference.state2([0],0,fid)
-        joint_p, joint_q = joint_p[0], joint_q[0]
+        
+        joint_p, joint_q, root_pos, root_orient, root_lin_vel, root_ang_vel = \
+            reference.state_partial([0],0,fid)
+        joint_p, joint_q, root_pos, root_orient, root_lin_vel, root_ang_vel = \
+            joint_p[0], joint_q[0], root_pos[0], root_orient[0], root_lin_vel[0], root_ang_vel[0]
         
         results = []
         for id in range(0, nSave, num_envs//nExtend):
@@ -151,8 +155,16 @@ if __name__ == '__main__':
                     envs[i].act(target_state[i])
                 gym.simulate(sim)
                 
+            
+            _pos, _vel = reference.state_pos_vel([0],0,fid)
+            com_pos, com_vel = envs[0].properties(_pos, _vel)
+            
+            
             for i in range(0, num_envs):
-                results.append([envs[i].cost(joint_tensor),envs[i].history()])
+                results.append([envs[i].cost(joint_p.clone(), joint_q.clone(), 
+                                             root_pos, root_orient,
+                                             root_ang_vel, com_pos, com_vel)
+                                ,envs[i].history()])
                 
         best = sorted(results, lambda x:x[0])[:nSample]
         

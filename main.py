@@ -32,18 +32,16 @@ limits = [.1,.1,.1,
           ]
 def get_noisy(joint_p, joint_q, reference):
     joint_q2 = joint_q.clone().reshape(-1)
-    noise = np.random.random(joint_q.shape[0]) # sample from [0, 1) uniform distribution
+    noise = np.random.random(joint_q2.shape[0]) # sample from [0, 1) uniform distribution
     for i in range(len(limits)): # transform to [-limit, limit)
         noise[i] = 2 * limits[i] * noise[i] - limits[i]
     
-
-    joint_q2 = joint_q2 + noise
-    while np.any(joint_q2 > np.pi):
+    while torch.any(joint_q2 > np.pi):
         joint_q2[joint_q2 > np.pi] -= 2 * np.pi
-    while np.any(joint_q2 < -np.pi):
+    while torch.any(joint_q2 < -np.pi):
         joint_q2[joint_q2 < -np.pi] += 2 * np.pi
 
-    joint_q2.reshape_like(joint_q)
+    joint_q2.reshape(joint_q.shape)
     return reference.state_joint_after_partial(joint_p, joint_q2)
 
 

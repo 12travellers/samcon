@@ -36,20 +36,19 @@ class Simulation:
 
         
     def overlap(self, old_state, old_traj):
-
         self.state = old_state
         self.trajectory = old_traj   
         root_tensor, joint_tensor = old_state[0], old_state[1]
         
-        actor_ids = torch.from_numpy(np.asarray([self.actor_handle])).flatten()
+        actor_ids = torch.from_numpy(np.asarray([self.actor_handle])).flatten().int()
         n_actor_ids = len(actor_ids)
         actor_ids = gymtorch.unwrap_tensor(actor_ids)
         self.gym.set_actor_root_state_tensor_indexed(self.sim,
-            gymtorch.unwrap_tensor(root_tensor),
+            gymtorch.unwrap_tensor(root_tensor.unsqueeze(0).repeat(50,1)),
             actor_ids, n_actor_ids
         )
         self.gym.set_dof_state_tensor_indexed(self.sim,
-            gymtorch.unwrap_tensor(joint_tensor),
+            gymtorch.unwrap_tensor(joint_tensor.repeat(50,1)),
             actor_ids, n_actor_ids
         ) 
     
@@ -82,7 +81,7 @@ class Simulation:
             self.trajectory += [target_state]
         
         root_tensor, joint_tensor = target_state[0], target_state[1]  
-        actor_ids = torch.from_numpy(np.asarray([self.actor_handle])).flatten()
+        actor_ids = torch.from_numpy(np.asarray([self.actor_handle])).flatten().int()
         n_actor_ids = len(actor_ids)
         actor_ids = gymtorch.unwrap_tensor(actor_ids)
         self.gym.set_dof_position_target_tensor_indexed(self.sim, joint_tensor, actor_ids, n_actor_ids)

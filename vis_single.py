@@ -50,10 +50,10 @@ def get_noisy(joint_pos, joint_vel, reference):
 
 
 if __name__ == '__main__':
-    device = 'cuda:3'
+    device = 'cpu'
     gym = gymapi.acquire_gym()
     compute_device_id, graphics_device_id = 3, 3
-    num_envs = 2
+    num_envs = 1 
     nSample, nSave = 1000, 100
     simulation_dt = 300
     sample_dt = 30
@@ -62,8 +62,8 @@ if __name__ == '__main__':
         
     sim_params = gymapi.SimParams()
 
-    sim_params.use_gpu_pipeline = True
-    sim_params.physx.use_gpu = True
+    sim_params.use_gpu_pipeline = False
+    sim_params.physx.use_gpu = False
     
     # get default set of parameters
     sim_params = gymapi.SimParams()
@@ -71,29 +71,23 @@ if __name__ == '__main__':
     # set common parameters
     sim_params.dt = 1 / simulation_dt
     sim_params.substeps = 2
-    sim_params.up_axis = gymapi.UP_AXIS_Z
-    sim_params.gravity = gymapi.Vec3(0.0, 0.0, -9.8)
+    sim_params.up_axis = gymapi.UP_AXIS_Y
+    sim_params.gravity = gymapi.Vec3(0.0, -9.8, 0.0)
 
     # set PhysX-specific parameters
-    sim_params.physx.use_gpu = True
+    sim_params.physx.use_gpu = False
     sim_params.physx.solver_type = 1
     sim_params.physx.num_position_iterations = 6
     sim_params.physx.num_velocity_iterations = 1
     sim_params.physx.contact_offset = 0.01
     sim_params.physx.rest_offset = 0.0
 
-    # set Flex-specific parameters
-    sim_params.flex.solver_type = 5
-    sim_params.flex.num_outer_iterations = 4
-    sim_params.flex.num_inner_iterations = 20
-    sim_params.flex.relaxation = 0.8
-    sim_params.flex.warm_start = 0.5
 
     sim = gym.create_sim(compute_device_id, graphics_device_id, gymapi.SIM_PHYSX, sim_params)
     
     # configure the ground plane
     plane_params = gymapi.PlaneParams()
-    plane_params.normal = gymapi.Vec3(0, 0, 1) # z-up!
+    plane_params.normal = gymapi.Vec3(0, 1, 0) # y-up!
     plane_params.distance = 0
     plane_params.static_friction = 1
     plane_params.dynamic_friction = 1
@@ -101,9 +95,6 @@ if __name__ == '__main__':
 
     # create the ground plane
     gym.add_ground(sim, plane_params)
-    
-    cam_props = gymapi.CameraProperties()
-    # viewer = gym.create_viewer(sim, cam_props)
     
     n_links, controllable_links = 15, [1, 2, 3, 4, 6, 7, 9, 10, 11, 12, 13, 14]
     dofs = [3, 3, 3, 1, 3, 1, 3, 1, 3, 3, 1, 3]
@@ -127,8 +118,11 @@ if __name__ == '__main__':
         envs.append(Simulation(gym, sim, asset, reference.skeleton, i))
     for ei in envs:
         ei.build_tensor()
-        
     gym.prepare_sim(sim)
+        
+    
+    cam_props = gymapi.CameraProperties()
+    viewer = gym.create_viewer(sim, cam_props)
     
     
     rounds = simulation_dt // sample_dt
@@ -137,81 +131,70 @@ if __name__ == '__main__':
     best2 = [[root_tensor, joint_tensor], []]
     best = [best2 for i in range(nSave)]
     
-    TIME = reference.motion[0].pos.shape[0]
-    TIME = 30
-    
     
     history_target = np.load('best.npy')
     print('reading history', history_target.shape)
     TIME = history_target.shape[0]
+    
+    ROOT_TENSOR, JOINT_TENSOR = [], []
+    for i in range(0, num_envs):
+        ROOT_TENSOR += [root_tensor.cpu().unsqueeze(0).numpy()]
+        JOINT_TENSOR += [joint_tensor.cpu().numpy()]        
+    ROOT_TENSOR, JOINT_TENSOR = \
+        np.concatenate([ROOT_TENSOR], axis=0),np.concatenate([JOINT_TENSOR], axis=0)
+    ROOT_TENSOR, JOINT_TENSOR = \
+        torch.from_numpy(ROOT_TENSOR), torch.from_numpy(JOINT_TENSOR)
+    # ROOT_TENSOR, JOINT_TENSOR = gymtorch.unwrap_tensor(ROOT_TENSOR), gymtorch.unwrap_tensor(JOINT_TENSOR)
+         
+    gym.set_actor_root_state_tensor(sim,
+        gymtorch.unwrap_tensor(JOINT_TENSOR))
+    gym.set_dof_state_tensor(sim,
+        gymtorch.unwrap_tensor(ROOT_TENSOR))
+
+                
     for fid in tqdm(range(TIME)):
         
-        # if gym.query_viewer_has_closed(viewer):
-            # break
-        root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),0,fid)
-        root_tensor, link_tensor, joint_tensor = root_tensor[0], link_tensor[0], joint_tensor[0]
-         
+        if gym.query_viewer_has_closed(viewer):
+            break
+
         target_state = []
         ROOT_TENSOR, JOINT_TENSOR = [], []
         for i in range(0, num_envs):
-            ROOT_TENSOR += [root_tensor.cpu().unsqueeze(0).numpy()]
-            JOINT_TENSOR += [joint_tensor.cpu().numpy()]
             
             target_state2 = torch.from_numpy(history_target[fid])
             target_state.append(target_state2.numpy())
-            # envs[i].act(target_state2, record=1)
+            envs[i].act(target_state2, record=1)
         
-        ROOT_TENSOR, JOINT_TENSOR = \
-            np.concatenate([ROOT_TENSOR], axis=0),np.concatenate([JOINT_TENSOR], axis=0)
-        ROOT_TENSOR, JOINT_TENSOR = \
-            torch.from_numpy(ROOT_TENSOR), torch.from_numpy(JOINT_TENSOR)
+
                     
         target_state = np.concatenate([target_state], axis=0)
         target_state = torch.from_numpy(target_state)
                 
-        
-        ROOT_TENSOR, JOINT_TENSOR = gymtorch.unwrap_tensor(ROOT_TENSOR), gymtorch.unwrap_tensor(JOINT_TENSOR)
         target_state = gymtorch.unwrap_tensor(target_state)
         # simulating...
+        print('aaaaaaaaaaaaaaaaa')
         for k in range(rounds):
-            if True:
-                actor_ids = [0]
-                if fid == 0 and k == 0:
-                    actor_ids += [1]
-                actor_ids = [1]
-                    
-                actor_ids = torch.from_numpy(np.asarray(actor_ids)).flatten().int()
-                n_actor_ids = len(actor_ids)
-                actor_ids = gymtorch.unwrap_tensor(actor_ids)
-                
-                gym.set_dof_state_tensor_indexed(sim,
-                    JOINT_TENSOR,
-                    actor_ids, n_actor_ids) 
-                print('aaaaaaaaaaaaaaaaa')
-                gym.set_actor_root_state_tensor_indexed(sim,
-                    ROOT_TENSOR,
-                    actor_ids, n_actor_ids)
-            if True:
-                actor_ids = [1]
-                actor_ids = torch.from_numpy(np.asarray(actor_ids)).flatten().int()
-                n_actor_ids = len(actor_ids)
-                actor_ids = gymtorch.unwrap_tensor(actor_ids)
-                
-                gym.set_dof_position_target_tensor_indexed(sim, target_state,\
-                    actor_ids, n_actor_ids) 
+
+            print('aaaaaaaaaaaaaaaaa', k)
+            gym.set_dof_position_target_tensor(sim, target_state) 
     
             gym.simulate(sim)
             gym.fetch_results(sim, True)
+            
+            print('aaaaaaaaaaaaaaaaa')
+            gym.step_graphics(sim)
+            print('aaaaaaaaaaaaaaaaa')
+            if(k==rounds-1):
+                gym.draw_viewer(viewer, sim, True)
+            print('aaaaaaaaaaaaaaaaa')
+        
             gym.sync_frame_time(sim)
+            # gym.viewer_camera_look_at(viewer, self.envs[tar_env], cam_pos, self.cam_target)
 
-        print('aaaaaaaaaaaaaaaaa')
-        gym.step_graphics(sim)
-        print('aaaaaaaaaaaaaaaaa')
-        # gym.draw_viewer(viewer, sim, True)
-        print('aaaaaaaaaaaaaaaaa')
+     
             
     
     
     print('ending')
-    # gym.destroy_viewer(viewer)    
+    gym.destroy_viewer(viewer)    
     gym.destroy_sim(sim)

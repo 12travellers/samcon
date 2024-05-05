@@ -30,19 +30,21 @@ limits = [.1,.1,.1,
           .0,
           .4,.2,.1,
           ]
-def get_noisy(joint_p, joint_q, reference):
-    joint_q2 = joint_q.clone().reshape(-1)
-    noise = np.random.random(joint_q2.shape[0]) # sample from [0, 1) uniform distribution
+def get_noisy(joint_pos, joint_vel, reference):
+
+    joint_pos2 = joint_pos.clone().reshape(-1)
+    noise = np.random.random(joint_pos2.shape[0]) # sample from [0, 1) uniform distribution
     for i in range(len(limits)): # transform to [-limit, limit)
         noise[i] = 2 * limits[i] * noise[i] - limits[i]
     
-    while torch.any(joint_q2 > np.pi):
-        joint_q2[joint_q2 > np.pi] -= 2 * np.pi
-    while torch.any(joint_q2 < -np.pi):
-        joint_q2[joint_q2 < -np.pi] += 2 * np.pi
+    while torch.any(joint_pos2 > np.pi):
+        joint_pos2[joint_pos2 > np.pi] -= 2 * np.pi
+    while torch.any(joint_pos2 < -np.pi):
+        joint_pos2[joint_pos2 < -np.pi] += 2 * np.pi
 
-    joint_q2.reshape(joint_q.shape)
-    return reference.state_joint_after_partial(joint_p, joint_q2)
+    joint_pos2 = joint_pos2.reshape(joint_pos.shape)
+    # return reference.state_joint_after_partial(joint_pos2, joint_vel)
+    return joint_pos2 #pos-driven pd control
 
 
 
@@ -134,21 +136,42 @@ if __name__ == '__main__':
         root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),0,fid)
         root_tensor, link_tensor, joint_tensor = root_tensor[0], link_tensor[0], joint_tensor[0]
         
-        joint_p, joint_q, root_pos, root_orient, root_lin_vel, root_ang_vel = \
+        joint_pos, joint_vel, root_pos, root_orient, root_lin_vel, root_ang_vel = \
             reference.state_partial(np.asarray([0]),0,fid)
-        joint_p, joint_q, root_pos, root_orient, root_lin_vel, root_ang_vel = \
-            joint_p[0], joint_q[0], root_pos[0], root_orient[0], root_lin_vel[0], root_ang_vel[0]
+        joint_pos, joint_vel, root_pos, root_orient, root_lin_vel, root_ang_vel = \
+            joint_pos[0], joint_vel[0], root_pos[0], root_orient[0], root_lin_vel[0], root_ang_vel[0]
         
         results = []
         for id in range(0, nSave, num_envs//nExtend):
             target_state = []
+            # setting all to source status
+            ROOT_TENSOR, JOINT_TENSOR = [], []
             for i in range(0, num_envs//nExtend):
                 for j in range(0, nExtend):
-                    envs[i*nExtend+j].overlap(best[id][0], best[id][1])
-                    target_state2 = get_noisy(joint_p, joint_q, reference)
-                    target_state.append(target_state2)
+                    root_tensor, joint_tensor = best[id][0][0], best[id][0][1]
+                    ROOT_TENSOR += [root_tensor.unsqueeze(0).numpy()]
+                    JOINT_TENSOR += [joint_tensor.numpy()]
+                
+            ROOT_TENSOR, JOINT_TENSOR = \
+                np.concatenate([ROOT_TENSOR], axis=0),np.concatenate([JOINT_TENSOR], axis=0)
+            ROOT_TENSOR, JOINT_TENSOR = \
+                torch.from_numpy(ROOT_TENSOR), torch.from_numpy(JOINT_TENSOR)
+            gym.set_actor_root_state_tensor(sim,
+                gymtorch.unwrap_tensor(ROOT_TENSOR))
+            gym.set_dof_state_tensor(sim,
+                gymtorch.unwrap_tensor(JOINT_TENSOR)) 
+            
+            # making pd-control's goal
+            for i in range(0, num_envs//nExtend):
+                for j in range(0, nExtend):
+                    target_state2 = get_noisy(joint_pos, joint_vel, reference)
+                    target_state.append(target_state2.numpy())
                     envs[i*nExtend+j].act(target_state2, record=1)
-                    
+            target_state = np.concatenate([target_state], axis=0)
+            target_state = torch.from_numpy(target_state)
+            print(target_state.shape)
+            gym.set_dof_position_target_tensor(sim, gymtorch.unwrap_tensor(target_state))
+            # simulating...
             for k in range(rounds):
                 for i in range(0,num_envs):
                     envs[i].act(target_state[i])
@@ -156,22 +179,25 @@ if __name__ == '__main__':
                 
             
             #not truncated, every information is here(for p/q, except root)
-            _pos, _vel = reference.motion[0].pos[fid:fid+1],\
-                reference.motion[0].lin_vel[fid:fid+1]
-            candidate_p, candidate_q = reference.motion[0].local_p[fid:fid+1], \
-                reference.motion[0].local_q[fid:fid+1]
-                
-            com_pos, com_vel = envs[0].properties(_pos, _vel)
+            _pos, _vel = reference.motion[0].pos[fid],\
+                reference.motion[0].lin_vel[fid]
+            candidate_p, candidate_q = reference.motion[0].local_p[fid], \
+                reference.motion[0].local_q[fid]
             
+                
+            com_pos, com_vel = envs[0].compute_com_pos_vel(_pos, _vel)
+            
+            # calculating cost
             for i in range(0, num_envs):
                 results.append([envs[i].cost(candidate_p.clone(), candidate_q.clone(), 
                                              root_pos, root_orient,
                                              root_ang_vel, com_pos, com_vel)
                                 ,envs[i].history()])
-                
+        # store nSample better ones
         best = sorted(results, lambda x:x[0])[:nSample]
         
-    np.save('best.npy', np.asarray(best[0][1]))
+        
     #save history of targets in pd-control
+    np.save('best.npy', np.asarray(best[0][1]))
         
     gym.destroy_sim(sim)

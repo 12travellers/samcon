@@ -481,11 +481,9 @@ class ReferenceMotion():
         joint_pos = (quat2expmap(joint_q) + joint_p).view(joint_q.size(0), -1)[:, self.dofs]
         joint_vel = joint_vel.view(joint_q.size(0), -1)[:, self.dofs]
 
-        return joint_p, joint_q, root_pos, root_orient, root_lin_vel, root_ang_vel
+        return joint_pos, joint_vel, root_pos, root_orient, root_lin_vel, root_ang_vel
     
-    def state_joint_after_partial(self, joint_p, joint_q):
-        joint_pos = (quat2expmap(joint_q) + joint_p).view(joint_q.size(0), -1)[:, self.dofs]
-        joint_vel = joint_vel.view(joint_q.size(0), -1)[:, self.dofs]
+    def state_joint_after_partial(self, joint_pos, joint_vel):
         joint_tensor = torch.stack((joint_pos, joint_vel), -1)
         return joint_tensor
         

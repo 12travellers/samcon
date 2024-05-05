@@ -38,19 +38,7 @@ class Simulation:
     def overlap(self, old_state, old_traj):
         self.state = old_state
         self.trajectory = old_traj   
-        root_tensor, joint_tensor = old_state[0], old_state[1]
         
-        actor_ids = torch.from_numpy(np.asarray([self.actor_handle])).flatten().int()
-        n_actor_ids = len(actor_ids)
-        actor_ids = gymtorch.unwrap_tensor(actor_ids)
-        self.gym.set_actor_root_state_tensor_indexed(self.sim,
-            gymtorch.unwrap_tensor(root_tensor.unsqueeze(0).repeat(50,1)),
-            actor_ids, n_actor_ids
-        )
-        self.gym.set_dof_state_tensor_indexed(self.sim,
-            gymtorch.unwrap_tensor(joint_tensor.repeat(50,1)),
-            actor_ids, n_actor_ids
-        ) 
     
     def cost(self, joint_p, joint_q, root_pos, root_orient, root_ang_vel, old_com_pos, old_com_vel):
         self.old_root_ang_vel = root_ang_vel
@@ -80,11 +68,12 @@ class Simulation:
         if record:
             self.trajectory += [target_state]
         
-        root_tensor, joint_tensor = target_state[0], target_state[1]  
-        actor_ids = torch.from_numpy(np.asarray([self.actor_handle])).flatten().int()
-        n_actor_ids = len(actor_ids)
-        actor_ids = gymtorch.unwrap_tensor(actor_ids)
-        self.gym.set_dof_position_target_tensor_indexed(self.sim, joint_tensor, actor_ids, n_actor_ids)
+        # root_tensor, joint_tensor = target_state[0], target_state[1]  
+        # #btw this is wrong; no root_tensor
+        # actor_ids = torch.from_numpy(np.asarray([self.actor_handle])).flatten().int()
+        # n_actor_ids = len(actor_ids)
+        # actor_ids = gymtorch.unwrap_tensor(actor_ids)
+        # self.gym.set_dof_position_target_tensor_indexed(self.sim, joint_tensor, actor_ids, n_actor_ids)
         
         
     def history(self):
@@ -214,8 +203,8 @@ class Simulation:
 
     def compute_com_pos_vel(self, _pos, _vel):
         properties = self.gym.get_actor_rigid_body_properties(self.env, self.actor_handle)
-        com_pos = torch.tensor([0,0,0])
-        com_vel = torch.tensor([0,0,0])
+        com_pos = torch.tensor([.0,.0,.0])
+        com_vel = torch.tensor([.0,.0,.0])
         for i in range(len(properties)):
             com_pos += properties[i].mass * _pos[i]
             com_vel += properties[i].mass * _vel[i]

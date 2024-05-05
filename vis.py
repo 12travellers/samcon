@@ -53,7 +53,7 @@ if __name__ == '__main__':
     device = 'cuda:3'
     gym = gymapi.acquire_gym()
     compute_device_id, graphics_device_id = 3, 3
-    num_envs = 50
+    num_envs = 2
     nSample, nSave = 1000, 100
     simulation_dt = 300
     sample_dt = 30
@@ -102,6 +102,9 @@ if __name__ == '__main__':
     # create the ground plane
     gym.add_ground(sim, plane_params)
     
+    cam_props = gymapi.CameraProperties()
+    viewer = gym.create_viewer(sim, cam_props)
+    
     n_links, controllable_links = 15, [1, 2, 3, 4, 6, 7, 9, 10, 11, 12, 13, 14]
     dofs = [3, 3, 3, 1, 3, 1, 3, 1, 3, 3, 1, 3]
     init_pose = './assets/motions/clips_run.yaml'
@@ -124,7 +127,7 @@ if __name__ == '__main__':
         envs.append(Simulation(gym, sim, asset, reference.skeleton, i))
     for ei in envs:
         ei.build_tensor()
-    
+        
     gym.prepare_sim(sim)
     
     
@@ -136,82 +139,78 @@ if __name__ == '__main__':
     
     TIME = reference.motion[0].pos.shape[0]
     TIME = 30
+    
+    
+    history_target = np.load('best.npy')
+    print('reading history', history_target.shape)
     for fid in tqdm(range(TIME)):
         
+        if gym.query_viewer_has_closed(viewer):
+            break
         root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),0,fid)
         root_tensor, link_tensor, joint_tensor = root_tensor[0], link_tensor[0], joint_tensor[0]
+         
+        target_state = []
+        ROOT_TENSOR, JOINT_TENSOR = [], []
+        for i in range(0, num_envs):
+            ROOT_TENSOR += [root_tensor.cpu().unsqueeze(0).numpy()]
+            JOINT_TENSOR += [joint_tensor.cpu().numpy()]
+            
+            target_state2 = torch.from_numpy(history_target[fid])
+            target_state.append(target_state2.numpy())
+            # envs[i].act(target_state2, record=1)
         
-        joint_pos, joint_vel, root_pos, root_orient, root_lin_vel, root_ang_vel = \
-            reference.state_partial(np.asarray([0]),0,fid)
-        joint_pos, joint_vel, root_pos, root_orient, root_lin_vel, root_ang_vel = \
-            joint_pos[0], joint_vel[0], root_pos[0], root_orient[0], root_lin_vel[0], root_ang_vel[0]
+        ROOT_TENSOR, JOINT_TENSOR = \
+            np.concatenate([ROOT_TENSOR], axis=0),np.concatenate([JOINT_TENSOR], axis=0)
+        ROOT_TENSOR, JOINT_TENSOR = \
+            torch.from_numpy(ROOT_TENSOR), torch.from_numpy(JOINT_TENSOR)
+                    
+        target_state = np.concatenate([target_state], axis=0)
+        target_state = torch.from_numpy(target_state)
+                
         
-        results = []
-        for id in range(0, nSave, num_envs//nExtend):
-            target_state = []
-            # setting all to source status
-            ROOT_TENSOR, JOINT_TENSOR = [], []
-            for i in range(0, num_envs//nExtend):
-                for j in range(0, nExtend):                  
-                    envs[i*nExtend+j].overlap(best[id][0], best[id][1].copy())
+        ROOT_TENSOR, JOINT_TENSOR = gymtorch.unwrap_tensor(ROOT_TENSOR), gymtorch.unwrap_tensor(JOINT_TENSOR)
+        target_state = gymtorch.unwrap_tensor(target_state)
+        # simulating...
+        for k in range(rounds):
+            if True:
+                actor_ids = [0]
+                if fid == 0 and k == 0:
+                    actor_ids += [1]
+                actor_ids = [1]
+                    
+                actor_ids = torch.from_numpy(np.asarray(actor_ids)).flatten().int()
+                n_actor_ids = len(actor_ids)
+                actor_ids = gymtorch.unwrap_tensor(actor_ids)
+                
+                # gym.set_dof_state_tensor_indexed(sim,
+                #     JOINT_TENSOR,
+                #     actor_ids, n_actor_ids) 
+                # print('aaaaaaaaaaaaaaaaa')
+                # gym.set_actor_root_state_tensor_indexed(sim,
+                #     ROOT_TENSOR,
+                #     actor_ids, n_actor_ids)
+            if True:
+                actor_ids = [1]
+                actor_ids = torch.from_numpy(np.asarray(actor_ids)).flatten().int()
+                n_actor_ids = len(actor_ids)
+                actor_ids = gymtorch.unwrap_tensor(actor_ids)
+                
+                # gym.set_dof_position_target_tensor_indexed(sim, target_state,\
+                #     actor_ids, n_actor_ids) 
+    
+            gym.simulate(sim)
+            gym.fetch_results(sim, True)
+            gym.sync_frame_time(sim)
 
-                    root_tensor, joint_tensor = best[id][0][0], best[id][0][1]
-                    ROOT_TENSOR += [root_tensor.unsqueeze(0).cpu().numpy()]
-                    JOINT_TENSOR += [joint_tensor.cpu().numpy()]
-                
-            ROOT_TENSOR, JOINT_TENSOR = \
-                np.concatenate([ROOT_TENSOR], axis=0),np.concatenate([JOINT_TENSOR], axis=0) 
-
-            ROOT_TENSOR, JOINT_TENSOR = \
-                torch.from_numpy(ROOT_TENSOR), torch.from_numpy(JOINT_TENSOR)
-           
-            gym.set_actor_root_state_tensor(sim,
-                gymtorch.unwrap_tensor(ROOT_TENSOR))
-            gym.set_dof_state_tensor(sim,
-                gymtorch.unwrap_tensor(JOINT_TENSOR)) 
+        print('aaaaaaaaaaaaaaaaa')
+        gym.step_graphics(sim)
+        print('aaaaaaaaaaaaaaaaa')
+        gym.draw_viewer(viewer, sim, True)
+        print('aaaaaaaaaaaaaaaaa')
             
-            # making pd-control's goal
-            for i in range(0, num_envs//nExtend):
-                for j in range(0, nExtend):
-                    target_state2 = get_noisy(joint_pos, joint_vel, reference)
-                    target_state.append(target_state2.cpu().numpy())
-                    envs[i*nExtend+j].act(target_state2, record=1)
-            target_state = np.concatenate([target_state], axis=0)
-            target_state = torch.from_numpy(target_state)
-            target_state = gymtorch.unwrap_tensor(target_state)
-            # simulating...
-            for k in range(rounds):
-                gym.set_dof_position_target_tensor(sim, target_state)
-                gym.simulate(sim)
-                gym.fetch_results(sim, True)
-                
-                gym.refresh_actor_root_state_tensor(sim)
-                gym.refresh_dof_state_tensor(sim)
-                gym.refresh_rigid_body_state_tensor(sim)
-                
-            
-            #not truncated, every information is here(for p/q, except root)
-            _pos, _vel = reference.motion[0].pos[fid],\
-                reference.motion[0].lin_vel[fid]
-            candidate_p, candidate_q = reference.motion[0].local_p[fid], \
-                reference.motion[0].local_q[fid]
-            
-                
-            com_pos, com_vel = envs[0].compute_com_pos_vel(_pos, _vel)
-            
-            # calculating cost
-            for i in range(0, num_envs):
-                results.append([envs[i].cost(candidate_p.clone(), candidate_q.clone(), 
-                                             root_pos, root_orient,
-                                             root_ang_vel, com_pos, com_vel)
-                                ,envs[i].history()])
-        # store nSample better ones
-        best = sorted(results, key=lambda x:x[0])
-
-        best = [best[i][1] for i in range(nSample)]
-        
-        
-    #save history of targets in pd-control
-    np.save('best.npy', np.asarray(best[0][1]))
-        
+    
+    
+    print('ending')
+    gym.destroy_viewer(viewer)    
     gym.destroy_sim(sim)

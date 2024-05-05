@@ -1,6 +1,6 @@
 from isaacgym import gymtorch
 from isaacgym import gymapi
-import isaacgym as gym
+import isaacgym
 import torch
 import numpy as np
 from ref_motion import compute_motion
@@ -8,6 +8,7 @@ from scipy.spatial.transform import Rotation as sRot
 
 class Simulation:
     UP_AXIS = 2 
+    
     
     def __init__(self, gym, sim, asset, skeleton, idk):
         self.gym = gym
@@ -24,9 +25,20 @@ class Simulation:
         start_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 
         self.actor_handle = self.gym.create_actor(self.env, asset, start_pose)
-        
         self.state = None
         self.trajectory = []
+        
+        # print(gym.get_actor_index(self.env, self.actor_handle,isaacgym.gymapi.IndexDomain.DOMAIN_SIM),'asdfgd')
+        self.dof_len = gym.get_actor_dof_count(self.env, self.actor_handle)
+        
+    def build_tensor(self):
+        _root_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
+        self.root_tensor = gymtorch.wrap_tensor(_root_tensor)[self.idk]
+        
+        _joint_tensor = self.gym.acquire_dof_state_tensor(self.sim)
+        self.joint_tensor = gymtorch.wrap_tensor(_joint_tensor)\
+            [self.idk*self.dof_len:self.idk*self.dof_len+self.dof_len]
+        self.properties = self.gym.get_actor_rigid_body_properties(self.env, self.actor_handle)
         
     def vector_up(self, val: float, base_vector=None):
         if base_vector is None:
@@ -38,7 +50,6 @@ class Simulation:
     def overlap(self, old_state, old_traj):
         self.state = old_state
         self.trajectory = old_traj   
-        self.dof_len = self.state[1].numel()//2 # joint_tensor
         
     
     def cost(self, candidate_p, candidate_q, root_pos, root_orient, root_ang_vel, old_com_pos, old_com_vel):
@@ -66,27 +77,13 @@ class Simulation:
         
     def act(self, target_state, record=0):
         if record:
-            self.trajectory += [target_state]
+            self.trajectory += [target_state.cpu().numpy()]
         
-        # root_tensor, joint_tensor = target_state[0], target_state[1]  
-        # #btw this is wrong; no root_tensor
-        # actor_ids = torch.from_numpy(np.asarray([self.actor_handle])).flatten().int()
-        # n_actor_ids = len(actor_ids)
-        # actor_ids = gymtorch.unwrap_tensor(actor_ids)
-        # self.gym.set_dof_position_target_tensor_indexed(self.sim, joint_tensor, actor_ids, n_actor_ids)
-        
+ 
         
     def history(self):
-        _root_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
-        root_tensor = gymtorch.wrap_tensor(_root_tensor)[self.idk]
-        
-        
-        _joint_tensor = self.gym.acquire_dof_state_tensor(self.sim)
-        joint_tensor = gymtorch.wrap_tensor(_joint_tensor)\
-            [self.idk*self.dof_len:self.idk*self.dof_len+self.dof_len]
-        
-        self.state = [root_tensor, joint_tensor]
-        return [self.state, self.trajectory]
+
+        return [[self.root_tensor, self.joint_tensor], self.trajectory]
         
         
         
@@ -109,8 +106,8 @@ class Simulation:
             q[controllable_links[i]] = \
                 torch.from_numpy(sRot.from_euler("xyz",dcm,degrees=False).as_quat())
             t+=dofs[i]
-        _root_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
-        root_tensor = gymtorch.wrap_tensor(_root_tensor)[self.idk]
+            
+        root_tensor = self.root_tensor
         root_positions = root_tensor[0:3]
         root_orientations = root_tensor[3:7]
         
@@ -150,7 +147,7 @@ class Simulation:
                      ee_w * ee_cost + \
                      balance_w * balance_cost + \
                      com_w * com_cost
-        return total_cost, pose_cost, root_cost, ee_cost, balance_cost, com_cost
+        return total_cost#, pose_cost, root_cost, ee_cost, balance_cost, com_cost
 
     def compute_pose_cost(self):
         # no need
@@ -175,8 +172,8 @@ class Simulation:
         """ orientation + angular velocity of root in world coordinate """
         error = 0.0
         
-        diff_root_Q = self.old_root_orient - self.root_orient
-        diff_root_w = self.old_root_ang_vel - self.root_ang_vel
+        diff_root_Q = self.old_root_orient.cpu() - self.root_orient
+        diff_root_w = self.old_root_ang_vel.cpu() - self.root_ang_vel
         error += 1.0 * np.dot(diff_root_Q, diff_root_Q) + \
                  0.1 * np.dot(diff_root_w, diff_root_w)
         return error
@@ -203,7 +200,7 @@ class Simulation:
         return error
 
     def compute_com_pos_vel(self, _pos, _vel):
-        properties = self.gym.get_actor_rigid_body_properties(self.env, self.actor_handle)
+        properties = self.properties
         com_pos = torch.tensor([.0,.0,.0])
         com_vel = torch.tensor([.0,.0,.0])
         for i in range(len(properties)):

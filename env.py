@@ -215,12 +215,12 @@ class Simulation:
         for nid in range(len(skeleton.nodes)):
             pid = skeleton.parents[nid]
             not_ee.append(pid)
-            if(self.idk==0):
-                vec = np.asarray([self.rigid_body_states[nid][0][0][i] for i in range(3)])
+            # if(self.idk==0):
+            #     vec = np.asarray([self.rigid_body_states[nid][0][0][i] for i in range(3)])
                 
-                vec = vec - new_motion.pos[0,nid].cpu().numpy()
-                # print(nid, vec, np.dot(vec,vec))
-                # print(nid, 100*new_motion.pos[0,nid], 100*vec)
+            #     vec = vec - new_motion.pos[0,nid].cpu().numpy()
+            #     print(nid, vec, np.dot(vec,vec))
+            #     print(nid, 100*new_motion.pos[0,nid], 100*vec)
 
         ees = []
         for nid in range(len(skeleton.nodes)):

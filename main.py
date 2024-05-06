@@ -46,9 +46,13 @@ def get_noisy(joint_pos, joint_vel, reference):
         joint_pos2[joint_pos2 < -np.pi] += 2 * np.pi
 
     joint_pos2 = joint_pos2.reshape(joint_pos.shape)
+    
     return joint_pos2 #pos-driven pd control
 
-
+def refresh(gym, sim):
+    gym.refresh_actor_root_state_tensor(sim)
+    gym.refresh_dof_state_tensor(sim)
+    gym.refresh_rigid_body_state_tensor(sim)
 
 if __name__ == '__main__':
     device = 'cuda:3'
@@ -123,6 +127,7 @@ if __name__ == '__main__':
     envs = []
     for i in range(num_envs):
         envs.append(Simulation(gym, sim, asset, reference.skeleton, i))
+    refresh(gym, sim)
     for ei in envs:
         ei.build_tensor()
     
@@ -137,7 +142,7 @@ if __name__ == '__main__':
     
     TIME = reference.motion[0].pos.shape[0]
     TIME = 150
-    for fid in tqdm(range(TIME)):
+    for fid in tqdm(range(1,TIME)):
         
         root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),fid/30)
         root_tensor, link_tensor, joint_tensor = root_tensor[0], link_tensor[0], joint_tensor[0]
@@ -179,6 +184,9 @@ if __name__ == '__main__':
                     envs[i*nExtend+j].act(target_state2, record=1)
             target_state = np.concatenate([target_state], axis=0)
             target_state = torch.from_numpy(target_state)
+                
+            # print("target_state_info", target_state.max(),target_state.min())
+            
             target_state = gymtorch.unwrap_tensor(target_state)
             # simulating...
             for k in range(rounds):
@@ -186,9 +194,8 @@ if __name__ == '__main__':
                 gym.simulate(sim)
                 gym.fetch_results(sim, True)
                 
-                gym.refresh_actor_root_state_tensor(sim)
-                gym.refresh_dof_state_tensor(sim)
-                gym.refresh_rigid_body_state_tensor(sim)
+                refresh(gym, sim)
+                
                 
             
             #not truncated, every information is here(for p/q, except root)
@@ -208,9 +215,13 @@ if __name__ == '__main__':
                                 ,envs[i].history()])
         # store nSample better ones
         best = sorted(results, key=lambda x:x[0])
-        print('loss:', best[0][0])
+        # print('loss:', best[0][0])
+        # print('loss:', best[1][0])
+        # print('loss:', best[2][0])
+        # print('loss:', best[100][0])
         best = [best[i][1] for i in range(nSample)]
-        np.save('best.npy', np.asarray(best[0][1]))
+        print(best[0][0])
+        np.save('best_no_control.npy', np.asarray(best[0][1]))
         
         
     #save history of targets in pd-control

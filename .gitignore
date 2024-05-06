@@ -1,3 +1,4 @@
 amass/
 assets/
 *.npy
+*.txt

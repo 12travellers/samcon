@@ -95,7 +95,7 @@ if __name__ == '__main__':
 
     
     
-    history_target = np.load('best.npy')
+    history_target = np.load('best_no_control.npy')
     print('reading history', history_target.shape)
     TIME = history_target.shape[0]
     
@@ -147,6 +147,8 @@ if __name__ == '__main__':
                 gym.draw_viewer(viewer, sim, True)
             # gym.draw_viewer(viewer, sim, True)
             gym.sync_frame_time(sim)
+        
+        print(envs[0].history()[0])
 
      
             

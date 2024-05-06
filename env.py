@@ -165,8 +165,7 @@ class Simulation:
         
         
     def compute_total_cost(self, target_motion, new_motion):
-        # a = target_motion.pos[0,0][2] - new_motion.pos[0,0][2]
-        # return a*a
+
         pose_w, root_w, ee_w, balance_w, com_w = 0, 10, 60, 30, 10
         # pose_w, root_w, ee_w, balance_w, com_w = 0, 10, 60, 0, 0
         pose_cost = self.compute_pose_cost()

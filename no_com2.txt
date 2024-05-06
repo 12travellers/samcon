@@ -1,0 +1,14 @@
+Importing module 'gym_38' (/mnt/data/caoyuan/issac/isaacgym/python/isaacgym/_bindings/linux-x86_64/gym_38.so)
+Setting GYM_USD_PLUG_INFO_PATH to /mnt/data/caoyuan/issac/isaacgym/python/isaacgym/_bindings/linux-x86_64/usd/plugInfo.json
+PyTorch version 2.2.2+cu121
+Device count 8
+/mnt/data/caoyuan/issac/isaacgym/python/isaacgym/_bindings/src/gymtorch
+ninja: no work to do.
+Not connected to PVD
++++ Using GPU PhysX
+Physics Engine: PhysX
+Physics Device: cuda:3
+GPU Pipeline: disabled
+Loading 1/1 motion files: ./assets/motions/locomotion/lafan1_run1_subject5_160_2105.json
+	64.8000s, 30 Hz, 1945 frames
+Loaded 1 motions with a total length of 64.800s.

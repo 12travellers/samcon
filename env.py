@@ -30,8 +30,16 @@ class Simulation:
         
         # print(gym.get_actor_index(self.env, self.actor_handle,isaacgym.gymapi.IndexDomain.DOMAIN_SIM),'asdfgd')
         self.dof_len = gym.get_actor_dof_count(self.env, self.actor_handle)
-        
+    
+    # {'head': 2, 'left_foot': 14, 'left_hand': 8, 'left_lower_arm': 7, 
+    #  'left_shin': 13, 'left_thigh': 12, 'left_upper_arm': 6, 
+    #  'pelvis': 0, 'right_foot': 11, 'right_hand': 5, 'right_lower_arm': 4, 
+    #  'right_shin': 10, 'right_thigh': 9, 'right_upper_arm': 3, 'torso': 1}
     def build_tensor(self):
+        self.rigid_body_dict = self.gym.get_actor_rigid_body_dict(self.env, self.actor_handle)
+        self.rigid_body_states = self.gym.get_actor_rigid_body_states(self.env, self.actor_handle, gymapi.STATE_ALL)
+        
+        
         _root_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
         self.root_tensor = gymtorch.wrap_tensor(_root_tensor)[self.idk]
         
@@ -39,6 +47,8 @@ class Simulation:
         self.joint_tensor = gymtorch.wrap_tensor(_joint_tensor)\
             [self.idk*self.dof_len:self.idk*self.dof_len+self.dof_len]
         self.properties = self.gym.get_actor_rigid_body_properties(self.env, self.actor_handle)
+        
+        self.states = self.gym.get_actor_rigid_body_states(self.env, self.actor_handle, gymapi.STATE_ALL)
         
     def vector_up(self, val: float, base_vector=None):
         if base_vector is None:
@@ -137,6 +147,7 @@ class Simulation:
         
     def compute_total_cost(self, target_motion, new_motion):
         pose_w, root_w, ee_w, balance_w, com_w = 0, 10, 60, 30, 10
+        pose_w, root_w, ee_w, balance_w, com_w = 0, 10, 60, 0, 0
         pose_cost = self.compute_pose_cost()
         root_cost = self.compute_root_cost()
         ee_cost = self.compute_ee_cost(target_motion, new_motion)

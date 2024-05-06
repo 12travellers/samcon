@@ -287,7 +287,8 @@ class ReferenceMotion():
         motion_time = phase * motion_len
         return motion_ids, motion_time
 
-    def state(self, motion_ids, motion_times, real_fid0):
+    def state(self, motion_ids, motion_times):
+        
         n = len(motion_ids)
         n_key_links = len(self.key_links)
         n_controllable_links = len(self.controllable_links)
@@ -318,8 +319,7 @@ class ReferenceMotion():
 
         phase = np.clip(motion_times / motion_len, 0.0, 1.0)
         fid0 = (phase * (num_frames - 1)).astype(int)
-        
-        fid0 = np.asarray([real_fid0])
+
         
         fid1 = np.minimum(fid0 + 1, num_frames - 1)
         frac = np.minimum((motion_times - fid0 * dt) / dt, 1.)
@@ -393,7 +393,7 @@ class ReferenceMotion():
         joint_tensor = torch.stack((joint_pos, joint_vel), -1)
         return root_tensor, link_tensor, joint_tensor
     
-    def state_partial(self, motion_ids, motion_times, real_fid0):
+    def state_partial(self, motion_ids, motion_times):
         n = len(motion_ids)
         n_key_links = len(self.key_links)
         n_controllable_links = len(self.controllable_links)
@@ -425,7 +425,6 @@ class ReferenceMotion():
         phase = np.clip(motion_times / motion_len, 0.0, 1.0)
         fid0 = (phase * (num_frames - 1)).astype(int)
         
-        fid0 = np.asarray([real_fid0])
         
         fid1 = np.minimum(fid0 + 1, num_frames - 1)
         frac = np.minimum((motion_times - fid0 * dt) / dt, 1.)
@@ -507,7 +506,7 @@ class ReferenceMotion():
         
         
     
-    # def state_pos_vel(self, motion_ids, motion_times, real_fid0):
+    # def state_pos_vel(self, motion_ids, motion_times):
     #     n = len(motion_ids)
     #     n_key_links = len(self.key_links)
     #     n_controllable_links = len(self.controllable_links)
@@ -525,7 +524,6 @@ class ReferenceMotion():
     #     phase = np.clip(motion_times / motion_len, 0.0, 1.0)
     #     fid0 = (phase * (num_frames - 1)).astype(int)
         
-    #     fid0 = np.asarray([real_fid0])
         
     #     fid1 = np.minimum(fid0 + 1, num_frames - 1)
     #     frac = np.minimum((motion_times - fid0 * dt) / dt, 1.)

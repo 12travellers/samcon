@@ -90,12 +90,12 @@ if __name__ == '__main__':
 
     gym.prepare_sim(sim)
 
-    root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),0,0)
+    root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),0)
     root_tensor, link_tensor, joint_tensor = root_tensor[0], link_tensor[0], joint_tensor[0]
 
     
     
-    history_target = np.load('best.npy')
+    history_target = np.load('best_no_com.npy')
     print('reading history', history_target.shape)
     TIME = history_target.shape[0]
     

@@ -129,7 +129,7 @@ if __name__ == '__main__':
     
     
     rounds = simulation_dt // sample_dt
-    root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),0,0)
+    root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),0)
     root_tensor, link_tensor, joint_tensor = root_tensor[0], link_tensor[0], joint_tensor[0]
     best2 = [[root_tensor, joint_tensor], []]
     best = [best2 for i in range(nSave)]
@@ -138,11 +138,11 @@ if __name__ == '__main__':
     TIME = 30
     for fid in tqdm(range(TIME)):
         
-        root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),0,fid)
+        root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),fid)
         root_tensor, link_tensor, joint_tensor = root_tensor[0], link_tensor[0], joint_tensor[0]
         
         joint_pos, joint_vel, root_pos, root_orient, root_lin_vel, root_ang_vel = \
-            reference.state_partial(np.asarray([0]),0,fid)
+            reference.state_partial(np.asarray([0]),fid)
         joint_pos, joint_vel, root_pos, root_orient, root_lin_vel, root_ang_vel = \
             joint_pos[0], joint_vel[0], root_pos[0], root_orient[0], root_lin_vel[0], root_ang_vel[0]
         
@@ -207,7 +207,7 @@ if __name__ == '__main__':
                                 ,envs[i].history()])
         # store nSample better ones
         best = sorted(results, key=lambda x:x[0])
-
+        print('loss:', best[0][0])
         best = [best[i][1] for i in range(nSample)]
         
         

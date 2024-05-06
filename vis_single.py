@@ -16,7 +16,7 @@ if __name__ == '__main__':
     compute_device_id, graphics_device_id = 0, 0
     num_envs = 1 
     nSample, nSave = 1000, 100
-    simulation_dt = 300
+    simulation_dt = 30
     sample_dt = 30
     rounds = simulation_dt // sample_dt
     

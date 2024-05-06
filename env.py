@@ -8,7 +8,13 @@ from scipy.spatial.transform import Rotation as sRot
 
 class Simulation:
     UP_AXIS = 2 
-    
+    stiff = [
+        600,600,600,50,50,50,
+        200,200,200,150,
+        200,200,200,150,
+        300,300,300,300,200,200,200,
+        300,300,300,300,200,200,200,
+    ]
     
     def __init__(self, gym, sim, asset, skeleton, idk):
         self.gym = gym
@@ -29,8 +35,16 @@ class Simulation:
         self.trajectory = []
         
         # print(gym.get_actor_index(self.env, self.actor_handle,isaacgym.gymapi.IndexDomain.DOMAIN_SIM),'asdfgd')
-        self.dof_len = gym.get_actor_dof_count(self.env, self.actor_handle)
-    
+        self.dof_len = gym.get_actor_dof_count(self.env, self.actor_handle) #(dof,2)
+        # all_pos = np.asarray([gymapi.DOF_MODE_POS]).repeat(self.dof_len)
+        # self.gym.set_actor_dof_properties(self.env, self.actor_handle, all_pos)
+        
+        props = gym.get_actor_dof_properties(self.env, self.actor_handle)
+        props["driveMode"].fill(gymapi.DOF_MODE_POS)
+        props["stiffness"] = torch.tensor(self.stiff)
+        props["damping"] = props["stiffness"] / 10
+        gym.set_actor_dof_properties(self.env, self.actor_handle, props)
+        
     # {'head': 2, 'left_foot': 14, 'left_hand': 8, 'left_lower_arm': 7, 
     #  'left_shin': 13, 'left_thigh': 12, 'left_upper_arm': 6, 
     #  'pelvis': 0, 'right_foot': 11, 'right_hand': 5, 'right_lower_arm': 4, 
@@ -147,7 +161,7 @@ class Simulation:
         
     def compute_total_cost(self, target_motion, new_motion):
         pose_w, root_w, ee_w, balance_w, com_w = 0, 10, 60, 30, 10
-        pose_w, root_w, ee_w, balance_w, com_w = 0, 10, 60, 0, 0
+        # pose_w, root_w, ee_w, balance_w, com_w = 0, 10, 60, 0, 0
         pose_cost = self.compute_pose_cost()
         root_cost = self.compute_root_cost()
         ee_cost = self.compute_ee_cost(target_motion, new_motion)
@@ -158,7 +172,7 @@ class Simulation:
                      ee_w * ee_cost + \
                      balance_w * balance_cost + \
                      com_w * com_cost
-        return total_cost#, pose_cost, root_cost, ee_cost, balance_cost, com_cost
+        return total_cost, pose_cost, root_cost, ee_cost, balance_cost, com_cost
 
     def compute_pose_cost(self):
         # no need
@@ -185,6 +199,9 @@ class Simulation:
         
         diff_root_Q = self.old_root_orient.cpu() - self.root_orient
         diff_root_w = self.old_root_ang_vel.cpu() - self.root_ang_vel
+        if(np.isnan(self.root_orient[0]) and 0):
+            print(self.idk)
+            print( self.root_tensor)
         error += 1.0 * np.dot(diff_root_Q, diff_root_Q) + \
                  0.1 * np.dot(diff_root_w, diff_root_w)
         return error
@@ -198,7 +215,13 @@ class Simulation:
         for nid in range(len(skeleton.nodes)):
             pid = skeleton.parents[nid]
             not_ee.append(pid)
-        
+            if(self.idk==0):
+                vec = np.asarray([self.rigid_body_states[nid][0][0][i] for i in range(3)])
+                
+                vec = vec - new_motion.pos[0,nid].cpu().numpy()
+                # print(nid, vec, np.dot(vec,vec))
+                # print(nid, 100*new_motion.pos[0,nid], 100*vec)
+
         ees = []
         for nid in range(len(skeleton.nodes)):
             if nid not in not_ee:
@@ -212,13 +235,17 @@ class Simulation:
 
     def compute_com_pos_vel(self, _pos, _vel):
         properties = self.properties
+        # for i in range(0,15):
+        #     print(properties[i].com)
         com_pos = torch.tensor([.0,.0,.0])
         com_vel = torch.tensor([.0,.0,.0])
+        total_mass = 0
         for i in range(len(properties)):
             for j in range(0,3):
                 com_pos[j] += properties[i].mass * _pos[i][j]
                 com_vel[j] += properties[i].mass * _vel[i][j]
-        return com_pos, com_vel
+                total_mass += properties[i].mass
+        return com_pos / total_mass, com_vel / total_mass
     
     def compute_com(self):
         body_state = self.gym.get_actor_rigid_body_states(self.env, self.actor_handle, gymapi.STATE_ALL)
@@ -231,8 +258,8 @@ class Simulation:
         kin_com_pos, kin_com_vel = self.old_com_pos, self.old_com_vel
 
         for nid in self.ees:
-            sim_planar_vec = sim_com_pos - target_motion.pos[0,nid] 
-            kin_planar_vec = kin_com_pos - new_motion.pos[0,nid]
+            sim_planar_vec = sim_com_pos - new_motion.pos[0,nid] 
+            kin_planar_vec = kin_com_pos - target_motion.pos[0,nid]
             diff_planar_vec = sim_planar_vec - kin_planar_vec
             diff_planar_vec = diff_planar_vec[:2] # only consider XY-component
             error += np.dot(diff_planar_vec, diff_planar_vec)

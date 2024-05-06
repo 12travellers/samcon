@@ -34,14 +34,16 @@ limits = [.1,.1,.1,
 def get_noisy(joint_pos, joint_vel, reference):
 
     joint_pos2 = joint_pos.clone().reshape(-1)
-    # noise = np.random.random(joint_pos2.shape[0]) # sample from [0, 1) uniform distribution
-    # for i in range(len(limits)): # transform to [-limit, limit)
-    #     noise[i] = 2 * limits[i] * noise[i] - limits[i]
+    noise = np.random.random(joint_pos2.shape[0]) # sample from [0, 1) uniform distribution
+    for i in range(len(limits)): # transform to [-limit, limit)
+        noise[i] = 2 * limits[i] * noise[i] - limits[i]
     
-    # while torch.any(joint_pos2 > np.pi):
-    #     joint_pos2[joint_pos2 > np.pi] -= 2 * np.pi
-    # while torch.any(joint_pos2 < -np.pi):
-    #     joint_pos2[joint_pos2 < -np.pi] += 2 * np.pi
+    joint_pos2 += torch.from_numpy(noise).to(joint_pos2.device)
+    
+    while torch.any(joint_pos2 > np.pi):
+        joint_pos2[joint_pos2 > np.pi] -= 2 * np.pi
+    while torch.any(joint_pos2 < -np.pi):
+        joint_pos2[joint_pos2 < -np.pi] += 2 * np.pi
 
     joint_pos2 = joint_pos2.reshape(joint_pos.shape)
     return joint_pos2 #pos-driven pd control
@@ -52,7 +54,7 @@ if __name__ == '__main__':
     device = 'cuda:3'
     gym = gymapi.acquire_gym()
     compute_device_id, graphics_device_id = 3, 3
-    num_envs = 100
+    num_envs = 50
     nSample, nSave = 1000, 100
     simulation_dt = 30
     sample_dt = 30

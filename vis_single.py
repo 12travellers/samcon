@@ -8,7 +8,10 @@ from ref_motion import ReferenceMotion
 from scipy.spatial.transform import Rotation as sRot
 from tqdm import tqdm
 
-
+def refresh(gym, sim):
+    gym.refresh_actor_root_state_tensor(sim)
+    gym.refresh_dof_state_tensor(sim)
+    gym.refresh_rigid_body_state_tensor(sim)
 
 if __name__ == '__main__':
     device = 'cpu'
@@ -85,6 +88,7 @@ if __name__ == '__main__':
     envs = []
     for i in range(num_envs):
         envs.append(Simulation(gym, sim, asset, reference.skeleton, i))
+    refresh(gym, sim)
     for ei in envs:
         ei.build_tensor()
 
@@ -141,6 +145,8 @@ if __name__ == '__main__':
     
             gym.simulate(sim)
             gym.fetch_results(sim, True)
+            
+            refresh(gym, sim)
             
             gym.step_graphics(sim)
             if(k==rounds-1 or 1):

@@ -159,9 +159,9 @@ if __name__ == '__main__':
             ROOT_TENSOR, JOINT_TENSOR = [], []
             for i in range(0, num_envs//nExtend):
                 for j in range(0, nExtend):                  
-                    envs[i*nExtend+j].overlap(best[id][0], best[id][1].copy())
+                    envs[i*nExtend+j].overlap(best[id+i][0], best[id+i][1].copy())
 
-                    root_tensor, joint_tensor = best[id][0][0], best[id][0][1]
+                    root_tensor, joint_tensor = best[id+i][0][0], best[id+i][0][1]
                     ROOT_TENSOR += [root_tensor.unsqueeze(0).cpu().numpy()]
                     JOINT_TENSOR += [joint_tensor.cpu().numpy()]
                 
@@ -208,7 +208,7 @@ if __name__ == '__main__':
             com_pos, com_vel = envs[0].compute_com_pos_vel(_pos, _vel)
             
             # calculating cost
-            for i in range(0, num_envs):
+            for i in range(num_envs):
                 results.append([envs[i].cost(candidate_p.clone(), candidate_q.clone(), 
                                              root_pos, root_orient,
                                              root_ang_vel, com_pos, com_vel)

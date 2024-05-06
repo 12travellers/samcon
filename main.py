@@ -34,17 +34,16 @@ limits = [.1,.1,.1,
 def get_noisy(joint_pos, joint_vel, reference):
 
     joint_pos2 = joint_pos.clone().reshape(-1)
-    noise = np.random.random(joint_pos2.shape[0]) # sample from [0, 1) uniform distribution
-    for i in range(len(limits)): # transform to [-limit, limit)
-        noise[i] = 2 * limits[i] * noise[i] - limits[i]
+    # noise = np.random.random(joint_pos2.shape[0]) # sample from [0, 1) uniform distribution
+    # for i in range(len(limits)): # transform to [-limit, limit)
+    #     noise[i] = 2 * limits[i] * noise[i] - limits[i]
     
-    while torch.any(joint_pos2 > np.pi):
-        joint_pos2[joint_pos2 > np.pi] -= 2 * np.pi
-    while torch.any(joint_pos2 < -np.pi):
-        joint_pos2[joint_pos2 < -np.pi] += 2 * np.pi
+    # while torch.any(joint_pos2 > np.pi):
+    #     joint_pos2[joint_pos2 > np.pi] -= 2 * np.pi
+    # while torch.any(joint_pos2 < -np.pi):
+    #     joint_pos2[joint_pos2 < -np.pi] += 2 * np.pi
 
     joint_pos2 = joint_pos2.reshape(joint_pos.shape)
-    # return reference.state_joint_after_partial(joint_pos2, joint_vel)
     return joint_pos2 #pos-driven pd control
 
 
@@ -53,9 +52,9 @@ if __name__ == '__main__':
     device = 'cuda:3'
     gym = gymapi.acquire_gym()
     compute_device_id, graphics_device_id = 3, 3
-    num_envs = 50
+    num_envs = 100
     nSample, nSave = 1000, 100
-    simulation_dt = 300
+    simulation_dt = 30
     sample_dt = 30
     
     nExtend = nSample // nSave
@@ -104,7 +103,7 @@ if __name__ == '__main__':
     
     n_links, controllable_links = 15, [1, 2, 3, 4, 6, 7, 9, 10, 11, 12, 13, 14]
     dofs = [3, 3, 3, 1, 3, 1, 3, 1, 3, 3, 1, 3]
-    init_pose = './assets/motions/clips_run.yaml'
+    init_pose = './assets/motions/clips_walk.yaml'
     character_model = './assets/humanoid.xml'
     reference = ReferenceMotion(motion_file=init_pose, character_model=character_model,
             key_links=np.arange(n_links), controllable_links=controllable_links, dofs=dofs,
@@ -135,14 +134,14 @@ if __name__ == '__main__':
     best = [best2 for i in range(nSave)]
     
     TIME = reference.motion[0].pos.shape[0]
-    TIME = 30
+    TIME = 150
     for fid in tqdm(range(TIME)):
         
-        root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),fid)
+        root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),fid/30)
         root_tensor, link_tensor, joint_tensor = root_tensor[0], link_tensor[0], joint_tensor[0]
         
         joint_pos, joint_vel, root_pos, root_orient, root_lin_vel, root_ang_vel = \
-            reference.state_partial(np.asarray([0]),fid)
+            reference.state_partial(np.asarray([0]),fid/30)
         joint_pos, joint_vel, root_pos, root_orient, root_lin_vel, root_ang_vel = \
             joint_pos[0], joint_vel[0], root_pos[0], root_orient[0], root_lin_vel[0], root_ang_vel[0]
         
@@ -209,9 +208,9 @@ if __name__ == '__main__':
         best = sorted(results, key=lambda x:x[0])
         print('loss:', best[0][0])
         best = [best[i][1] for i in range(nSample)]
+        np.save('best.npy', np.asarray(best[0][1]))
         
         
     #save history of targets in pd-control
-    np.save('best.npy', np.asarray(best[0][1]))
         
     gym.destroy_sim(sim)

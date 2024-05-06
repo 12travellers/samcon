@@ -67,7 +67,7 @@ if __name__ == '__main__':
     
     n_links, controllable_links = 15, [1, 2, 3, 4, 6, 7, 9, 10, 11, 12, 13, 14]
     dofs = [3, 3, 3, 1, 3, 1, 3, 1, 3, 3, 1, 3]
-    init_pose = './assets/motions/clips_run.yaml'
+    init_pose = './assets/motions/clips_walk.yaml'
     character_model = './assets/humanoid.xml'
     reference = ReferenceMotion(motion_file=init_pose, character_model=character_model,
             key_links=np.arange(n_links), controllable_links=controllable_links, dofs=dofs,
@@ -95,7 +95,7 @@ if __name__ == '__main__':
 
     
     
-    history_target = np.load('best_no_com.npy')
+    history_target = np.load('best.npy')
     print('reading history', history_target.shape)
     TIME = history_target.shape[0]
     

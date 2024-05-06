@@ -67,7 +67,7 @@ if __name__ == '__main__':
     
     n_links, controllable_links = 15, [1, 2, 3, 4, 6, 7, 9, 10, 11, 12, 13, 14]
     dofs = [3, 3, 3, 1, 3, 1, 3, 1, 3, 3, 1, 3]
-    init_pose = './assets/motions/clips_run.yaml'
+    init_pose = './assets/motions/clips_walk.yaml'
     character_model = './assets/humanoid.xml'
     reference = ReferenceMotion(motion_file=init_pose, character_model=character_model,
             key_links=np.arange(n_links), controllable_links=controllable_links, dofs=dofs,
@@ -90,7 +90,7 @@ if __name__ == '__main__':
 
     gym.prepare_sim(sim)
 
-    root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),0,0)
+    root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),0)
     root_tensor, link_tensor, joint_tensor = root_tensor[0], link_tensor[0], joint_tensor[0]
 
     
@@ -120,7 +120,7 @@ if __name__ == '__main__':
         if gym.query_viewer_has_closed(viewer):
             break
 
-        root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),0,fid)
+        root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),fid/30)
         root_tensor, link_tensor, joint_tensor = root_tensor[0], link_tensor[0], joint_tensor[0]
 
         target_state = []

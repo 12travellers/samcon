@@ -30,12 +30,11 @@ if __name__ == '__main__':
     sim_params.use_gpu_pipeline = False
     sim_params.physx.use_gpu = False
     
-    # get default set of parameters
-    sim_params = gymapi.SimParams()
+
 
     # set common parameters
     sim_params.dt = 1 / simulation_dt
-    sim_params.substeps = 2
+    sim_params.substeps = 10
     sim_params.up_axis = gymapi.UP_AXIS_Z
     sim_params.gravity = gymapi.Vec3(0.0, 0.0, -9.8)
 
@@ -113,20 +112,22 @@ if __name__ == '__main__':
         torch.from_numpy(ROOT_TENSOR), torch.from_numpy(JOINT_TENSOR)
     # ROOT_TENSOR, JOINT_TENSOR = gymtorch.unwrap_tensor(ROOT_TENSOR), gymtorch.unwrap_tensor(JOINT_TENSOR)
          
-    gym.set_actor_root_state_tensor(sim,
-        gymtorch.unwrap_tensor(ROOT_TENSOR))
-    gym.set_dof_state_tensor(sim,
-        gymtorch.unwrap_tensor(JOINT_TENSOR))
+    
 
                 
     for fid in tqdm(range(TIME)):
         
         if gym.query_viewer_has_closed(viewer):
             break
+        
+        if fid==0:
+            assert(gym.set_actor_root_state_tensor(sim,
+                gymtorch.unwrap_tensor(ROOT_TENSOR)))
+            assert(gym.set_dof_state_tensor(sim,
+                gymtorch.unwrap_tensor(JOINT_TENSOR)))
 
         target_state = []
-        for i in range(0, num_envs):
-            
+        for i in range(0, num_envs):    
             target_state2 = torch.from_numpy(history_target[fid])
             target_state.append(target_state2.numpy())
             envs[i].act(target_state2, record=1)
@@ -140,8 +141,7 @@ if __name__ == '__main__':
         # simulating...
         for k in range(rounds):
 
-            print('aaaaaaaaaaaaaaaaa', k)
-            gym.set_dof_position_target_tensor(sim, target_state) 
+            # assert(gym.set_dof_position_target_tensor(sim, target_state) )
     
             gym.simulate(sim)
             gym.fetch_results(sim, True)
@@ -149,12 +149,13 @@ if __name__ == '__main__':
             refresh(gym, sim)
             
             gym.step_graphics(sim)
-            if(k==rounds-1 or 1):
+            if(k==0):
                 gym.draw_viewer(viewer, sim, True)
             # gym.draw_viewer(viewer, sim, True)
             gym.sync_frame_time(sim)
         
         print(envs[0].history()[0])
+
 
      
             

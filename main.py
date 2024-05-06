@@ -31,12 +31,16 @@ limits = [.1,.1,.1,
           .0,
           .4,.2,.1,
           ]
+
+
 def get_noisy(joint_pos, joint_vel, reference):
 
     joint_pos2 = joint_pos.clone().reshape(-1)
     noise = np.random.random(joint_pos2.shape[0]) # sample from [0, 1) uniform distribution
     for i in range(len(limits)): # transform to [-limit, limit)
         noise[i] = 2 * limits[i] * noise[i] - limits[i]
+        # noise[i] *= np.pi
+
     
     joint_pos2 += torch.from_numpy(noise).to(joint_pos2.device)
     
@@ -70,12 +74,11 @@ if __name__ == '__main__':
     sim_params.use_gpu_pipeline = True
     sim_params.physx.use_gpu = True
     
-    # get default set of parameters
-    sim_params = gymapi.SimParams()
+
 
     # set common parameters
     sim_params.dt = 1 / simulation_dt
-    sim_params.substeps = 2
+    sim_params.substeps = 10
     sim_params.up_axis = gymapi.UP_AXIS_Z
     sim_params.gravity = gymapi.Vec3(0.0, 0.0, -9.8)
 
@@ -141,17 +144,20 @@ if __name__ == '__main__':
     best = [best2 for i in range(nSave)]
     
     TIME = reference.motion[0].pos.shape[0]
-    TIME = 150
+    TIME = 300
     for fid in tqdm(range(1,TIME)):
         
         root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),fid/30)
+        # root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),0)
         root_tensor, link_tensor, joint_tensor = root_tensor[0], link_tensor[0], joint_tensor[0]
         
         joint_pos, joint_vel, root_pos, root_orient, root_lin_vel, root_ang_vel = \
             reference.state_partial(np.asarray([0]),fid/30)
+        # joint_pos, joint_vel, root_pos, root_orient, root_lin_vel, root_ang_vel = \
+            # reference.state_partial(np.asarray([0]),0)
         joint_pos, joint_vel, root_pos, root_orient, root_lin_vel, root_ang_vel = \
             joint_pos[0], joint_vel[0], root_pos[0], root_orient[0], root_lin_vel[0], root_ang_vel[0]
-        
+
         results = []
         for id in range(0, nSave, num_envs//nExtend):
             target_state = []
@@ -161,20 +167,21 @@ if __name__ == '__main__':
                 for j in range(0, nExtend):                  
                     envs[i*nExtend+j].overlap(best[id+i][0], best[id+i][1].copy())
 
-                    root_tensor, joint_tensor = best[id+i][0][0], best[id+i][0][1]
-                    ROOT_TENSOR += [root_tensor.unsqueeze(0).cpu().numpy()]
-                    JOINT_TENSOR += [joint_tensor.cpu().numpy()]
+                    root_tensor2, joint_tensor2 = best[id+i][0][0], best[id+i][0][1]
+                    ROOT_TENSOR += [root_tensor2.unsqueeze(0).cpu().numpy()]
+                    JOINT_TENSOR += [joint_tensor2.cpu().numpy()]
                 
             ROOT_TENSOR, JOINT_TENSOR = \
                 np.concatenate([ROOT_TENSOR], axis=0),np.concatenate([JOINT_TENSOR], axis=0) 
 
             ROOT_TENSOR, JOINT_TENSOR = \
-                torch.from_numpy(ROOT_TENSOR), torch.from_numpy(JOINT_TENSOR)
-           
-            gym.set_actor_root_state_tensor(sim,
-                gymtorch.unwrap_tensor(ROOT_TENSOR))
-            gym.set_dof_state_tensor(sim,
-                gymtorch.unwrap_tensor(JOINT_TENSOR)) 
+                torch.from_numpy(ROOT_TENSOR).to(device), torch.from_numpy(JOINT_TENSOR).to(device)
+            
+            if(fid==1 or 1):
+                assert(gym.set_actor_root_state_tensor(sim,
+                    gymtorch.unwrap_tensor(ROOT_TENSOR)))
+                assert(gym.set_dof_state_tensor(sim,
+                    gymtorch.unwrap_tensor(JOINT_TENSOR)))
             
             # making pd-control's goal
             for i in range(0, num_envs//nExtend):
@@ -183,22 +190,23 @@ if __name__ == '__main__':
                     target_state.append(target_state2.cpu().numpy())
                     envs[i*nExtend+j].act(target_state2, record=1)
             target_state = np.concatenate([target_state], axis=0)
-            target_state = torch.from_numpy(target_state)
+            target_state = torch.from_numpy(target_state).to(device)
                 
             # print("target_state_info", target_state.max(),target_state.min())
             
             target_state = gymtorch.unwrap_tensor(target_state)
             # simulating...
+
+            
+            
             for k in range(rounds):
-                gym.set_dof_position_target_tensor(sim, target_state)
+                assert(gym.set_dof_position_target_tensor(sim, target_state))
                 gym.simulate(sim)
                 gym.fetch_results(sim, True)
                 
                 refresh(gym, sim)
-                
-                
             
-            #not truncated, every information is here(for p/q, except root)
+            #not dof_only, every information is here(for p/q, except root)
             _pos, _vel = reference.motion[0].pos[fid],\
                 reference.motion[0].lin_vel[fid]
             candidate_p, candidate_q = reference.motion[0].local_p[fid], \
@@ -213,14 +221,15 @@ if __name__ == '__main__':
                                              root_pos, root_orient,
                                              root_ang_vel, com_pos, com_vel)
                                 ,envs[i].history()])
+            # break
         # store nSample better ones
-        best = sorted(results, key=lambda x:x[0])
-        # print('loss:', best[0][0])
-        # print('loss:', best[1][0])
-        # print('loss:', best[2][0])
-        # print('loss:', best[100][0])
-        best = [best[i][1] for i in range(nSample)]
-        print(best[0][0])
+        best2 = sorted(results, key=lambda x:x[0])
+        print('loss:', best2[0][0])
+        
+        best = [best2[i][1] for i in range(nSample)]
+        print("showing........")
+        print(best[0][0][0])
+        print(root_tensor)
         np.save('best_no_control.npy', np.asarray(best[0][1]))
         
         

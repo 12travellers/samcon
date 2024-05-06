@@ -22,7 +22,7 @@ class Simulation:
         self.idk = idk
         self.skeleton = skeleton
         spacing = 2.0
-        lower = gymapi.Vec3(-spacing, -spacing, 0.0)
+        lower = gymapi.Vec3(-spacing, 0.0, -spacing)
         upper = gymapi.Vec3(spacing, spacing, spacing)
         self.env = self.gym.create_env(sim, lower, upper, 8)
         
@@ -50,9 +50,9 @@ class Simulation:
     #  'pelvis': 0, 'right_foot': 11, 'right_hand': 5, 'right_lower_arm': 4, 
     #  'right_shin': 10, 'right_thigh': 9, 'right_upper_arm': 3, 'torso': 1}
     def build_tensor(self):
-        self.rigid_body_dict = self.gym.get_actor_rigid_body_dict(self.env, self.actor_handle)
-        self.rigid_body_states = self.gym.get_actor_rigid_body_states(self.env, self.actor_handle, gymapi.STATE_ALL)
-        
+        _rigid_body_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
+        self.rigid_body_states = gymtorch.wrap_tensor(_rigid_body_states)\
+            [self.idk*15:self.idk*15+15]
         
         _root_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
         self.root_tensor = gymtorch.wrap_tensor(_root_tensor)[self.idk]
@@ -60,9 +60,9 @@ class Simulation:
         _joint_tensor = self.gym.acquire_dof_state_tensor(self.sim)
         self.joint_tensor = gymtorch.wrap_tensor(_joint_tensor)\
             [self.idk*self.dof_len:self.idk*self.dof_len+self.dof_len]
+            
         self.properties = self.gym.get_actor_rigid_body_properties(self.env, self.actor_handle)
         
-        self.states = self.gym.get_actor_rigid_body_states(self.env, self.actor_handle, gymapi.STATE_ALL)
         
     def vector_up(self, val: float, base_vector=None):
         if base_vector is None:
@@ -79,14 +79,15 @@ class Simulation:
     def cost(self, candidate_p, candidate_q, root_pos, root_orient, root_ang_vel, old_com_pos, old_com_vel):
         self.old_root_ang_vel = root_ang_vel
         self.old_root_orient = root_orient
-        self.old_com_pos, self.old_com_vel = old_com_pos, old_com_vel
+        self.old_com_pos, self.old_com_vel = old_com_pos, old_com_vel        
+
         
         self.com_pos, self.com_vel = self.compute_com()
         
         skeleton = self.skeleton
-        now_state = self.gym.acquire_dof_state_tensor(self.sim)
-        now_state = gymtorch.wrap_tensor(now_state).clone()[self.idk*self.dof_len:self.idk*self.dof_len+self.dof_len]
-        
+        # now_state = self.gym.acquire_dof_state_tensor(self.sim)
+        # now_state = gymtorch.wrap_tensor(now_state).clone()[self.idk*self.dof_len:self.idk*self.dof_len+self.dof_len]
+        now_state = self.joint_tensor
         for nid in range(len(skeleton.nodes)):
             pid = skeleton.parents[nid]
             if pid == -1:
@@ -97,6 +98,11 @@ class Simulation:
         
         target_motion = compute_motion(30, self.skeleton, candidate_q.unsqueeze(0), candidate_p.unsqueeze(0), early_stop=True)
         now_motion = self.compute_motion_from_state(now_state, candidate_p, candidate_q)
+        
+
+        for i in range(0,15):
+            print(self.rigid_body_states[i, 0:3], now_motion.pos[0,i])
+        print('---------------------------------')
         return self.compute_total_cost(target_motion, now_motion)
         
     def act(self, target_state, record=0):
@@ -106,8 +112,7 @@ class Simulation:
  
         
     def history(self):
-
-        return [[self.root_tensor, self.joint_tensor], self.trajectory]
+        return [[self.root_tensor.clone(), self.joint_tensor.clone()], self.trajectory.copy()]
         
         
         
@@ -123,9 +128,9 @@ class Simulation:
         for i in range(0,len(controllable_links)):
             dcm = None
             if dofs[i] == 3:
-                dcm = state[t:t+3,0]
+                dcm = state[t:t+3,0].cpu()
             else:
-                dcm = [0,state[t][0],0]
+                dcm = [0,state[t][0].cpu(),0]
             dcm = np.asarray(dcm)
             q[controllable_links[i]] = \
                 torch.from_numpy(sRot.from_euler("xyz",dcm,degrees=False).as_quat())
@@ -160,6 +165,8 @@ class Simulation:
         
         
     def compute_total_cost(self, target_motion, new_motion):
+        # a = target_motion.pos[0,0][2] - new_motion.pos[0,0][2]
+        # return a*a
         pose_w, root_w, ee_w, balance_w, com_w = 0, 10, 60, 30, 10
         # pose_w, root_w, ee_w, balance_w, com_w = 0, 10, 60, 0, 0
         pose_cost = self.compute_pose_cost()
@@ -197,13 +204,13 @@ class Simulation:
         """ orientation + angular velocity of root in world coordinate """
         error = 0.0
         
-        diff_root_Q = self.old_root_orient.cpu() - self.root_orient
-        diff_root_w = self.old_root_ang_vel.cpu() - self.root_ang_vel
-        if(np.isnan(self.root_orient[0]) and 0):
-            print(self.idk)
-            print( self.root_tensor)
-        error += 1.0 * np.dot(diff_root_Q, diff_root_Q) + \
-                 0.1 * np.dot(diff_root_w, diff_root_w)
+        diff_root_Q = self.old_root_orient - self.root_orient
+        diff_root_w = self.old_root_ang_vel - self.root_ang_vel
+        # if(np.isnan(self.root_orient[0]) and 0):
+        #     print(self.idk)
+        #     print( self.root_tensor)
+        error += 1.0 * torch.dot(diff_root_Q, diff_root_Q) + \
+                 0.1 * torch.dot(diff_root_w, diff_root_w)
         return error
 
     def compute_ee_cost(self, target_motion, new_motion):
@@ -242,14 +249,14 @@ class Simulation:
         total_mass = 0
         for i in range(len(properties)):
             for j in range(0,3):
-                com_pos[j] += properties[i].mass * _pos[i][j]
-                com_vel[j] += properties[i].mass * _vel[i][j]
-                total_mass += properties[i].mass
+                com_pos[j] += properties[i].mass * _pos[i][j].cpu()
+                com_vel[j] += properties[i].mass * _vel[i][j].cpu()
+            total_mass += properties[i].mass
         return com_pos / total_mass, com_vel / total_mass
     
     def compute_com(self):
-        body_state = self.gym.get_actor_rigid_body_states(self.env, self.actor_handle, gymapi.STATE_ALL)
-        return self.compute_com_pos_vel(body_state['pose']['p'], body_state['vel']['linear'])
+        return self.compute_com_pos_vel(self.rigid_body_states[:,0:3], \
+                        self.rigid_body_states[:,7:10])
             
     def compute_balance_cost(self, target_motion, new_motion):
         """ balance cost plz see the SamCon paper """

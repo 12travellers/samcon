@@ -20,17 +20,17 @@ limits = [.1,.1,.1,
           .2,.2,.2,
           
           .2,.2,.2,
-          .0,
+          .2,
           
           .2,.2,.2,
-          .0,
+          .2,
           
           .4,.4,.1,
-          .0,
+          .2,
           .4,.2,.1,
           
           .4,.4,.1,
-          .0,
+          .2,
           .4,.2,.1,
           ]
 
@@ -72,14 +72,14 @@ if __name__ == '__main__':
 
     # args = vars(parser.parse_args( ))
     # param = args['arg']
-    param = [5,10,60,30,10]
+    param = [5,10,60,30,50]
     assert(len(param)==5)
     
     device = 'cuda:3'
     gym = gymapi.acquire_gym()
     compute_device_id, graphics_device_id = 3, 3
     num_envs = 100
-    nSample, nSave = 1000, 100
+    nSample, nSave = 2000, 200
     simulation_dt = 30
     sample_dt = 30
     
@@ -118,7 +118,6 @@ if __name__ == '__main__':
     # configure the ground plane
     plane_params = gymapi.PlaneParams()
     plane_params.normal = gymapi.Vec3(0, 0, 1) # z-up!
-    plane_params.distance = 0
     plane_params.static_friction = 1
     plane_params.dynamic_friction = 1
     plane_params.restitution = 0
@@ -144,7 +143,7 @@ if __name__ == '__main__':
     asset = gym.load_asset(sim, asset_root, asset_file, asset_opt)
     
     envs = []
-    for i in range(num_envs):
+    for i in range(num_envs+1):
         envs.append(Simulation(gym, sim, asset, reference.skeleton, i, param))
     refresh(gym, sim)
     for ei in envs:
@@ -165,13 +164,13 @@ if __name__ == '__main__':
     for fid in tqdm(range(SSStart+1,TIME)):
         
         root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),fid/30)
-        # root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),0)
         root_tensor, link_tensor, joint_tensor = root_tensor[0], link_tensor[0], joint_tensor[0]
+
+        root_tensor_old, link_tensor_old, joint_tensor_old = reference.state(np.asarray([0]),(fid-1)/30)
+        root_tensor_old, link_tensor_old, joint_tensor_old = root_tensor_old[0], link_tensor_old[0], joint_tensor_old[0]
         
         joint_pos, joint_vel, root_pos, root_orient, root_lin_vel, root_ang_vel = \
             reference.state_partial(np.asarray([0]),fid/30)
-        # joint_pos, joint_vel, root_pos, root_orient, root_lin_vel, root_ang_vel = \
-            # reference.state_partial(np.asarray([0]),0)
         joint_pos, joint_vel, root_pos, root_orient, root_lin_vel, root_ang_vel = \
             joint_pos[0], joint_vel[0], root_pos[0], root_orient[0], root_lin_vel[0], root_ang_vel[0]
 
@@ -187,19 +186,22 @@ if __name__ == '__main__':
                     root_tensor2, joint_tensor2 = best[id+i][0][0], best[id+i][0][1]
                     ROOT_TENSOR += [root_tensor2.unsqueeze(0).cpu().numpy()]
                     JOINT_TENSOR += [joint_tensor2.cpu().numpy()]
-                
+                    
+            ROOT_TENSOR += [root_tensor_old.unsqueeze(0).cpu().numpy()]
+            JOINT_TENSOR += [joint_tensor_old.cpu().numpy()]
+            
             ROOT_TENSOR, JOINT_TENSOR = \
                 np.concatenate([ROOT_TENSOR], axis=0),np.concatenate([JOINT_TENSOR], axis=0) 
 
             ROOT_TENSOR, JOINT_TENSOR = \
                 torch.from_numpy(ROOT_TENSOR).to(device), torch.from_numpy(JOINT_TENSOR).to(device)
             
-            if(fid==1 or 1):
-                assert(gym.set_actor_root_state_tensor(sim,
-                    gymtorch.unwrap_tensor(ROOT_TENSOR)))
-                assert(gym.set_dof_state_tensor(sim,
-                    gymtorch.unwrap_tensor(JOINT_TENSOR)))
-        
+
+            assert(gym.set_actor_root_state_tensor(sim,
+                gymtorch.unwrap_tensor(ROOT_TENSOR)))
+            assert(gym.set_dof_state_tensor(sim,
+                gymtorch.unwrap_tensor(JOINT_TENSOR)))
+
 
             
             # making pd-control's goal
@@ -208,6 +210,9 @@ if __name__ == '__main__':
                     target_state2 = get_noisy(joint_pos, joint_vel, reference)
                     target_state.append(target_state2.cpu().numpy())
                     envs[i*nExtend+j].act(target_state2, record=1)
+                    
+            target_state.append(joint_pos.cpu().numpy())
+            
             target_state = np.concatenate([target_state], axis=0)
             target_state = torch.from_numpy(target_state).to(device)
                 
@@ -226,19 +231,18 @@ if __name__ == '__main__':
                 refresh(gym, sim)
             
             #not dof_only, every information is here(for p/q, except root)
-            _pos, _vel = reference.motion[0].pos[fid],\
-                reference.motion[0].lin_vel[fid]
-            candidate_p, candidate_q = reference.motion[0].local_p[fid], \
-                reference.motion[0].local_q[fid]
-            
+            # _pos, _vel = reference.motion[0].pos[fid],\
+            #     reference.motion[0].lin_vel[fid]
+            # candidate_p, candidate_q = reference.motion[0].local_p[fid], \
+            #     reference.motion[0].local_q[fid]
                 
-            com_pos, com_vel = envs[0].compute_com_pos_vel(_pos, _vel)
+            # com_pos, com_vel = envs[0].compute_com_pos_vel(_pos, _vel)
             
             # calculating cost
+            for ie in envs:
+                ie.compute_com()
             for i in range(num_envs):
-                results.append([envs[i].cost(candidate_p.clone(), candidate_q.clone(), 
-                                             root_pos, root_orient,
-                                             root_ang_vel, com_pos, com_vel)
+                results.append([envs[i].cost(envs[num_envs])
                                 ,envs[i].history()])
             # break
         # store nSample better ones
@@ -254,6 +258,5 @@ if __name__ == '__main__':
         #     np.asarray(best[0][1]))
         
         
-    #save history of targets in pd-control
         
     gym.destroy_sim(sim)

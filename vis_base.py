@@ -124,11 +124,18 @@ if __name__ == '__main__':
         root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),fid/30)
         root_tensor, link_tensor, joint_tensor = root_tensor[0], link_tensor[0], joint_tensor[0]
 
+        joint_pos2 = joint_tensor.clone()
+        # while torch.any(joint_pos2 > np.pi):
+        #     joint_pos2[joint_pos2 > np.pi] -= 2 * np.pi
+        # while torch.any(joint_pos2 < -np.pi):
+        #     joint_pos2[joint_pos2 < -np.pi] += 2 * np.pi
+        
         target_state = []
         ROOT_TENSOR, JOINT_TENSOR = [], []
         for i in range(0, num_envs):
             ROOT_TENSOR += [root_tensor.cpu().unsqueeze(0).numpy()]
-            JOINT_TENSOR += [joint_tensor.cpu().numpy()]
+            # JOINT_TENSOR += [joint_tensor.cpu().numpy()]
+            JOINT_TENSOR += [joint_pos2.cpu().numpy()]
             
 
         

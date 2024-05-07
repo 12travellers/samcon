@@ -314,6 +314,7 @@ class ReferenceMotion():
         link_ang_vel = torch.empty((n, n_key_links, 3), dtype=torch.float, requires_grad=False)
 
         motion_len = self.motion_length[motion_ids]
+
         num_frames = self.motion_n_frames[motion_ids]
         dt = self.motion_dt[motion_ids]
 

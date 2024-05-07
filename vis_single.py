@@ -18,12 +18,10 @@ if __name__ == '__main__':
     gym = gymapi.acquire_gym()
     compute_device_id, graphics_device_id = 0, 0
     num_envs = 1 
-    nSample, nSave = 1000, 100
     simulation_dt = 30
     sample_dt = 30
     rounds = simulation_dt // sample_dt
     
-    nExtend = nSample // nSave
         
     sim_params = gymapi.SimParams()
 
@@ -98,7 +96,7 @@ if __name__ == '__main__':
 
     
     
-    history_target = np.load('best_no_control.npy')
+    history_target = np.load('best.npy')
     print('reading history', history_target.shape)
     TIME = history_target.shape[0]
     
@@ -141,7 +139,7 @@ if __name__ == '__main__':
         # simulating...
         for k in range(rounds):
 
-            # assert(gym.set_dof_position_target_tensor(sim, target_state) )
+            assert(gym.set_dof_position_target_tensor(sim, target_state) )
     
             gym.simulate(sim)
             gym.fetch_results(sim, True)

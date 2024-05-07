@@ -15,14 +15,20 @@ class Simulation:
         300,300,300,300,200,200,200,
         300,300,300,300,200,200,200,
     ]
+    ees = [14,8,11,5]
+    # {'head': 2, 'left_foot': 14, 'left_hand': 8, 'left_lower_arm': 7, 
+    #  'left_shin': 13, 'left_thigh': 12, 'left_upper_arm': 6, 
+    #  'pelvis': 0, 'right_foot': 11, 'right_hand': 5, 'right_lower_arm': 4, 
+    #  'right_shin': 10, 'right_thigh': 9, 'right_upper_arm': 3, 'torso': 1}
     
-    def __init__(self, gym, sim, asset, skeleton, idk):
+    def __init__(self, gym, sim, asset, skeleton, idk, param = [0, 10, 60, 30, 10]):
+        self.param = param
         self.gym = gym
         self.sim = sim
         self.idk = idk
         self.skeleton = skeleton
-        spacing = 2.0
-        lower = gymapi.Vec3(-spacing, 0.0, -spacing)
+        spacing = 100.0
+        lower = gymapi.Vec3(-spacing, -spacing, 0.0)
         upper = gymapi.Vec3(spacing, spacing, spacing)
         self.env = self.gym.create_env(sim, lower, upper, 8)
         
@@ -31,24 +37,16 @@ class Simulation:
         start_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 
         self.actor_handle = self.gym.create_actor(self.env, asset, start_pose)
-        self.state = None
         self.trajectory = []
         
-        # print(gym.get_actor_index(self.env, self.actor_handle,isaacgym.gymapi.IndexDomain.DOMAIN_SIM),'asdfgd')
         self.dof_len = gym.get_actor_dof_count(self.env, self.actor_handle) #(dof,2)
-        # all_pos = np.asarray([gymapi.DOF_MODE_POS]).repeat(self.dof_len)
-        # self.gym.set_actor_dof_properties(self.env, self.actor_handle, all_pos)
-        
+
         props = gym.get_actor_dof_properties(self.env, self.actor_handle)
         props["driveMode"].fill(gymapi.DOF_MODE_POS)
         props["stiffness"] = torch.tensor(self.stiff)
         props["damping"] = props["stiffness"] / 10
-        gym.set_actor_dof_properties(self.env, self.actor_handle, props)
+        assert(gym.set_actor_dof_properties(self.env, self.actor_handle, props))
         
-    # {'head': 2, 'left_foot': 14, 'left_hand': 8, 'left_lower_arm': 7, 
-    #  'left_shin': 13, 'left_thigh': 12, 'left_upper_arm': 6, 
-    #  'pelvis': 0, 'right_foot': 11, 'right_hand': 5, 'right_lower_arm': 4, 
-    #  'right_shin': 10, 'right_thigh': 9, 'right_upper_arm': 3, 'torso': 1}
     def build_tensor(self):
         _rigid_body_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
         self.rigid_body_states = gymtorch.wrap_tensor(_rigid_body_states)\
@@ -61,6 +59,7 @@ class Simulation:
         self.joint_tensor = gymtorch.wrap_tensor(_joint_tensor)\
             [self.idk*self.dof_len:self.idk*self.dof_len+self.dof_len]
             
+        # not changing quantitys
         self.properties = self.gym.get_actor_rigid_body_properties(self.env, self.actor_handle)
         
         
@@ -72,7 +71,6 @@ class Simulation:
 
         
     def overlap(self, old_state, old_traj):
-        self.state = old_state
         self.trajectory = old_traj   
         
     
@@ -100,9 +98,9 @@ class Simulation:
         now_motion = self.compute_motion_from_state(now_state, candidate_p, candidate_q)
         
 
-        for i in range(0,15):
-            print(self.rigid_body_states[i, 0:3], now_motion.pos[0,i])
-        print('---------------------------------')
+        # for i in range(0,15):
+        #     print(self.rigid_body_states[i, 0:3], now_motion.pos[0,i])
+        # print('---------------------------------')
         return self.compute_total_cost(target_motion, now_motion)
         
     def act(self, target_state, record=0):
@@ -166,9 +164,10 @@ class Simulation:
         
     def compute_total_cost(self, target_motion, new_motion):
 
-        pose_w, root_w, ee_w, balance_w, com_w = 0, 10, 60, 30, 10
+        pose_w, root_w, ee_w, balance_w, com_w =\
+            self.param[0], self.param[1], self.param[2], self.param[3], self.param[4]
         # pose_w, root_w, ee_w, balance_w, com_w = 0, 10, 60, 0, 0
-        pose_cost = self.compute_pose_cost()
+        pose_cost = self.compute_pose_cost(target_motion, new_motion)
         root_cost = self.compute_root_cost()
         ee_cost = self.compute_ee_cost(target_motion, new_motion)
         balance_cost = self.compute_balance_cost(target_motion, new_motion)
@@ -180,23 +179,25 @@ class Simulation:
                      com_w * com_cost
         return total_cost, pose_cost, root_cost, ee_cost, balance_cost, com_cost
 
-    def compute_pose_cost(self):
+    def compute_pose_cost(self, target_motion, new_motion):
         # no need
-        return 0
-        # """ pose + angular velocity of internal joints in local coordinate """
-        # error = 0.0
-        # joint_weights = self._cfg.joint_weights
-        # sim_joint_ps, sim_joint_vs = self._sim_agent.get_joint_pv(self._sim_agent._joint_indices_movable)
-        # kin_joint_ps, kin_joint_vs = self._kin_agent.get_joint_pv(self._kin_agent._joint_indices_movable)
+        """ pose + angular velocity of internal joints in local coordinate """
+        error = 0.0
+        skeleton = self.skeleton
 
-        # for i in range(len(joint_weights)):
-        #     _, diff_pose_pos = self._pb_client.getAxisAngleFromQuaternion(
-        #         self._pb_client.getDifferenceQuaternion(sim_joint_ps[i], kin_joint_ps[i])
-        #     )
-        #     diff_pos_vel = sim_joint_vs[i] - kin_joint_vs[i]
-        #     error += joint_weights[i] * (1.0 * np.dot(diff_pose_pos, diff_pose_pos) + 0.1 * np.dot(diff_pos_vel, diff_pos_vel))
-        # error /= len(joint_weights)            
-        # return error
+        for i in range(1,len(skeleton.nodes)):
+            # _, diff_pose_pos = self._pb_client.getAxisAngleFromQuaternion(
+            #     self._pb_client.getDifferenceQuaternion(sim_joint_ps[i], kin_joint_ps[i])
+            # )
+            # diff_pos_vel = sim_joint_vs[i] - kin_joint_vs[i]
+            p = skeleton.parents[i]
+            diff_pose_pos = (target_motion.pos[0,i]-target_motion.pos[0,p]) \
+                - (new_motion.pos[0,i]-new_motion.pos[0,p])
+            diff_pos_vel = 0 # fail to calulate local velocity, sorry
+            error += np.dot(diff_pose_pos, diff_pose_pos) +\
+                0.1 * np.dot(diff_pos_vel, diff_pos_vel)
+        error /= len(skeleton)            
+        return error
 
     def compute_root_cost(self):
         # done!
@@ -216,27 +217,11 @@ class Simulation:
         # done!
         """ end-effectors (height) in world coordinate """
         error = 0.0
-        skeleton = self.skeleton
-        not_ee = []
-        for nid in range(len(skeleton.nodes)):
-            pid = skeleton.parents[nid]
-            not_ee.append(pid)
-            # if(self.idk==0):
-            #     vec = np.asarray([self.rigid_body_states[nid][0][0][i] for i in range(3)])
-                
-            #     vec = vec - new_motion.pos[0,nid].cpu().numpy()
-            #     print(nid, vec, np.dot(vec,vec))
-            #     print(nid, 100*new_motion.pos[0,nid], 100*vec)
-
-        ees = []
-        for nid in range(len(skeleton.nodes)):
-            if nid not in not_ee:
-                diff_pos = target_motion.pos[0,nid] - new_motion.pos[0,nid]
-                diff_pos = diff_pos[-1] # only consider Z-component (height)
-                error += np.dot(diff_pos, diff_pos)
-                ees += [nid]
-        self.ees = ees
-        error /= len(ees)
+        for nid in self.ees:
+            diff_pos = target_motion.pos[0,nid] - new_motion.pos[0,nid]
+            diff_pos = diff_pos[-1] # only consider Z-component (height)
+            error += np.dot(diff_pos, diff_pos)
+        error /= len(self.ees)
         return error
 
     def compute_com_pos_vel(self, _pos, _vel):

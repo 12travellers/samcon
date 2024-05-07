@@ -249,7 +249,7 @@ class Simulation:
         kin_com_pos, kin_com_vel = self.old_com_pos, self.old_com_vel
 
         for nid in self.ees:
-            sim_planar_vec = sim_com_pos - new_motion.pos[0,nid] 
+            sim_planar_vec = sim_com_pos - self.rigid_body_states[nid,0:3] #new_motion.pos[0,nid] 
             kin_planar_vec = kin_com_pos - target_motion.pos[0,nid]
             diff_planar_vec = sim_planar_vec - kin_planar_vec
             diff_planar_vec = diff_planar_vec[:2] # only consider XY-component

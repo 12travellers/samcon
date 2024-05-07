@@ -32,15 +32,15 @@ if __name__ == '__main__':
 
     # set common parameters
     sim_params.dt = 1 / simulation_dt
-    sim_params.substeps = 10
+    sim_params.substeps = 2
     sim_params.up_axis = gymapi.UP_AXIS_Z
     sim_params.gravity = gymapi.Vec3(0.0, 0.0, -9.8)
 
     # set PhysX-specific parameters
     sim_params.physx.use_gpu = False
     sim_params.physx.solver_type = 1
-    sim_params.physx.num_position_iterations = 6
-    sim_params.physx.num_velocity_iterations = 1
+    sim_params.physx.num_position_iterations = 4
+    sim_params.physx.num_velocity_iterations = 0
     sim_params.physx.contact_offset = 0.01
     sim_params.physx.rest_offset = 0.0
 

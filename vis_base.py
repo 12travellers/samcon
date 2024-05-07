@@ -90,7 +90,8 @@ if __name__ == '__main__':
 
     gym.prepare_sim(sim)
 
-    root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),0)
+    SSStart = 60
+    root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),SSStart/30)
     root_tensor, link_tensor, joint_tensor = root_tensor[0], link_tensor[0], joint_tensor[0]
 
     
@@ -115,7 +116,7 @@ if __name__ == '__main__':
         gymtorch.unwrap_tensor(JOINT_TENSOR))
 
                 
-    for fid in tqdm(range(TIME)):
+    for fid in tqdm(range(SSStart+1,TIME)):
         
         if gym.query_viewer_has_closed(viewer):
             break

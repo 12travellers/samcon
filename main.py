@@ -7,7 +7,7 @@ import numpy as np
 from ref_motion import ReferenceMotion
 from scipy.spatial.transform import Rotation as sRot
 from tqdm import tqdm
-import argparse
+import argparse,time
  
 
 # ["torso", "head", 
@@ -73,12 +73,13 @@ if __name__ == '__main__':
     # args = vars(parser.parse_args( ))
     # param = args['arg']
     param = [5,10,60,30,50]
+    param = [0,5,20,100,50]
     assert(len(param)==5)
     
     device = 'cuda:3'
     gym = gymapi.acquire_gym()
     compute_device_id, graphics_device_id = 3, 3
-    num_envs = 100
+    num_envs = 2000
     nSample, nSave = 2000, 200
     simulation_dt = 30
     sample_dt = 30
@@ -106,12 +107,6 @@ if __name__ == '__main__':
     sim_params.physx.contact_offset = 0.01
     sim_params.physx.rest_offset = 0.0
 
-    # set Flex-specific parameters
-    sim_params.flex.solver_type = 5
-    sim_params.flex.num_outer_iterations = 4
-    sim_params.flex.num_inner_iterations = 20
-    sim_params.flex.relaxation = 0.8
-    sim_params.flex.warm_start = 0.5
 
     sim = gym.create_sim(compute_device_id, graphics_device_id, gymapi.SIM_PHYSX, sim_params)
     
@@ -144,14 +139,14 @@ if __name__ == '__main__':
     
     envs = []
     for i in range(num_envs+1):
-        envs.append(Simulation(gym, sim, asset, reference.skeleton, i, param))
+        envs.append(Simulation(gym, sim, asset, reference.skeleton, i, device, param))
     refresh(gym, sim)
     for ei in envs:
         ei.build_tensor()
     
     gym.prepare_sim(sim)
     
-    SSStart = 60
+    SSStart = 0
     
     rounds = simulation_dt // sample_dt
     root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),SSStart/30)
@@ -175,6 +170,7 @@ if __name__ == '__main__':
             joint_pos[0], joint_vel[0], root_pos[0], root_orient[0], root_lin_vel[0], root_ang_vel[0]
 
         results = []
+        SS = time.time()
         for id in range(0, nSave, num_envs//nExtend):
             target_state = []
             # setting all to source status
@@ -196,13 +192,12 @@ if __name__ == '__main__':
             ROOT_TENSOR, JOINT_TENSOR = \
                 torch.from_numpy(ROOT_TENSOR).to(device), torch.from_numpy(JOINT_TENSOR).to(device)
             
-
+            
             assert(gym.set_actor_root_state_tensor(sim,
                 gymtorch.unwrap_tensor(ROOT_TENSOR)))
             assert(gym.set_dof_state_tensor(sim,
                 gymtorch.unwrap_tensor(JOINT_TENSOR)))
-
-
+            
             
             # making pd-control's goal
             for i in range(0, num_envs//nExtend):
@@ -216,47 +211,33 @@ if __name__ == '__main__':
             target_state = np.concatenate([target_state], axis=0)
             target_state = torch.from_numpy(target_state).to(device)
                 
-            # print("target_state_info", target_state.max(),target_state.min())
-            
-            target_state = gymtorch.unwrap_tensor(target_state)
-            # simulating...
 
-            
-            
+            # simulating...
             for k in range(rounds):
-                assert(gym.set_dof_position_target_tensor(sim, target_state))
+                assert(gym.set_dof_position_target_tensor(sim, gymtorch.unwrap_tensor(target_state)))
+                
                 gym.simulate(sim)
                 gym.fetch_results(sim, True)
                 
                 refresh(gym, sim)
             
-            #not dof_only, every information is here(for p/q, except root)
-            # _pos, _vel = reference.motion[0].pos[fid],\
-            #     reference.motion[0].lin_vel[fid]
-            # candidate_p, candidate_q = reference.motion[0].local_p[fid], \
-            #     reference.motion[0].local_q[fid]
-                
-            # com_pos, com_vel = envs[0].compute_com_pos_vel(_pos, _vel)
-            
             # calculating cost
+                      
             for ie in envs:
                 ie.compute_com()
             for i in range(num_envs):
                 results.append([envs[i].cost(envs[num_envs])
                                 ,envs[i].history()])
-            # break
         # store nSample better ones
         best2 = sorted(results, key=lambda x:x[0][0])
         print()
         print('loss:', best2[0][0])
         
+        
         best = [best2[i][1] for i in range(nSample)]
         print('root_pos compare,', best[0][0][0][0:3], root_tensor[0:3])
+        print('com_pos compare,', best[0][0][2], envs[num_envs].com_pos)
         np.save(f'best.npy',\
             np.asarray(best[0][1]))
-        # np.save(f'best_{param[0]}_{param[1]}_{param[2]}_{param[3]}_{param[4]}.npy',\
-        #     np.asarray(best[0][1]))
-        
-        
-        
+    
     gym.destroy_sim(sim)

@@ -8,7 +8,7 @@ from ref_motion import ReferenceMotion
 from scipy.spatial.transform import Rotation as sRot
 from tqdm import tqdm
 import argparse,time
-from cfg import n_links, controllable_links, dofs, limits, param
+from cfg import n_links, controllable_links, dofs, limits, param, up_axis
  
 
 # ["torso", "head", 
@@ -16,12 +16,12 @@ from cfg import n_links, controllable_links, dofs, limits, param
 #         "left_upper_arm", "left_lower_arm", 
 #         "right_thigh", "right_shin", "right_foot",
 #         "left_thigh", "left_shin", "left_foot"]
-simulation_dt = 30
-save_file_name = 'walk_again.npy'
-init_pose = './assets/motions/clips_walk.yaml'
+simulation_dt = 60
+save_file_name = 'walk_again2.npy'
+init_pose = './assets/motions/roll.yaml'
 character_model = './assets/humanoid.xml'
 asset_root = "/mnt/data/caoyuan/issac/samcon/assets/"
-asset_file = "amp_humanoid.xml"
+asset_file = "humanoid.xml"
 SSStart = 0
 
 def get_noisy(joint_pos, joint_vel, reference):
@@ -30,7 +30,7 @@ def get_noisy(joint_pos, joint_vel, reference):
     noise = np.random.random(joint_pos2.shape[0]) # sample from [0, 1) uniform distribution
     for i in range(len(limits)): # transform to [-limit, limit)
         noise[i] = 2 * limits[i] * noise[i] - limits[i]
-        # noise[i] *= np.pi
+        noise[i] *= np.pi
 
     
     joint_pos2 += torch.from_numpy(noise).to(joint_pos2.device)
@@ -74,9 +74,13 @@ def build_sim(gym, simulation_dt, use_gpu = False):
     sim_params.physx.use_gpu = use_gpu
     # set common parameters
     sim_params.dt = 1 / simulation_dt
-    sim_params.substeps = 2
-    sim_params.up_axis = gymapi.UP_AXIS_Z
-    sim_params.gravity = gymapi.Vec3(0.0, 0.0, -9.8)
+    sim_params.substeps = 10
+    if (up_axis==2):
+        sim_params.gravity = gymapi.Vec3(0.0, 0.0, -9.8)
+        sim_params.up_axis = gymapi.UP_AXIS_Z
+    else:
+        sim_params.gravity = gymapi.Vec3(0.0, -9.8, 0.0)
+        sim_params.up_axis = gymapi.UP_AXIS_Y
     # set PhysX-specific parameters
     sim_params.physx.solver_type = 1
     sim_params.physx.num_position_iterations = 4
@@ -87,7 +91,10 @@ def build_sim(gym, simulation_dt, use_gpu = False):
     sim = gym.create_sim(compute_device_id, graphics_device_id, gymapi.SIM_PHYSX, sim_params)
     # configure the ground plane
     plane_params = gymapi.PlaneParams()
-    plane_params.normal = gymapi.Vec3(0, 0, 1) # z-up!
+    if (up_axis==2):
+        plane_params.normal = gymapi.Vec3(0, 0, 1) # z-up!
+    else:
+        plane_params.normal = gymapi.Vec3(0, 1, 0) # z-up!
     plane_params.distance = 0
     plane_params.static_friction = 1
     plane_params.dynamic_friction = 1
@@ -103,8 +110,8 @@ if __name__ == '__main__':
     sample_dt = simulation_dt
     device = 'cuda:2'
     gym = gymapi.acquire_gym()
-    num_envs = 2000
-    nSample, nSave = 2000, 200
+    num_envs = 5000
+    nSample, nSave = 5000, 200
     nExtend = nSample // nSave
     sim = build_sim(gym, simulation_dt, use_gpu=True)
     asset, reference = read_data(gym, sim, device = device)
@@ -121,7 +128,7 @@ if __name__ == '__main__':
 
     
     rounds = simulation_dt // sample_dt
-    root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),SSStart/30)
+    root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),SSStart/simulation_dt)
     best2 = [[root_tensor, joint_tensor], []]
     best = [best2 for i in range(nSave)]
     
@@ -129,12 +136,12 @@ if __name__ == '__main__':
     TIME = 300
     for fid in tqdm(range(SSStart+1,TIME)):
         
-        root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),fid/30)
+        root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),fid/simulation_dt)
 
-        root_tensor_old, link_tensor_old, joint_tensor_old = reference.state(np.asarray([0]),(fid-1)/30)
+        root_tensor_old, link_tensor_old, joint_tensor_old = reference.state(np.asarray([0]),(fid-1)/simulation_dt)
         
         joint_pos, joint_vel, root_pos, root_orient, root_lin_vel, root_ang_vel = \
-            reference.state_partial(np.asarray([0]),fid/30)
+            reference.state_partial(np.asarray([0]),fid/simulation_dt)
        
         results = []
         SS = time.time()

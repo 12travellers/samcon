@@ -6,10 +6,9 @@ import numpy as np
 from ref_motion import compute_motion
 from scipy.spatial.transform import Rotation as sRot
 
-from cfg import n_links, controllable_links, dofs
+from cfg import n_links, controllable_links, dofs, up_axis 
 
 class Simulation:
-    UP_AXIS = 2 
     stiff = [
         600,600,600,50,50,50,
         200,200,200,150,
@@ -32,7 +31,11 @@ class Simulation:
         self.device = device
         self.skeleton = skeleton
         spacing = 8.0
-        lower = gymapi.Vec3(-spacing, -spacing, 0.0)
+        if up_axis==2:
+            lower = gymapi.Vec3(-spacing, -spacing, 0.0)
+        else:
+            lower = gymapi.Vec3(-spacing, 0.0,  -spacing,)
+            
         upper = gymapi.Vec3(spacing, spacing, spacing)
         self.env = self.gym.create_env(sim, lower, upper, 8)
         
@@ -77,14 +80,12 @@ class Simulation:
     def vector_up(self, val: float, base_vector=None):
         if base_vector is None:
             base_vector = [0., 0., 0.]
-        base_vector[self.UP_AXIS] = val
+        base_vector[up_axis] = val
         return base_vector
 
-        
     def overlap(self, old_state, old_traj):
         self.trajectory = old_traj   
         
-    
     def cost(self, another):
         return self.compute_total_cost(another)
         
@@ -95,7 +96,6 @@ class Simulation:
     def pos(self):
         return self.rigid_body_states[:,0:3]
  
-        
     def history(self):
         return [[self.root_tensor.clone(), self.joint_tensor.clone(), self.com_pos], self.trajectory.copy()]
         
@@ -136,15 +136,15 @@ class Simulation:
                 p[nid] *= 0
             
         return compute_motion(30, self.skeleton, q.unsqueeze(0), p.unsqueeze(0), early_stop=True)
-        
-        
-        
-        
-        
-        
-        
-        
-        
+    
+    def compute_com_pos_vel(self, _pos, _vel):
+        com_pos = (self.properties_mass * _pos).sum(axis=0).squeeze(0)
+        com_vel = (self.properties_mass * _vel).sum(axis=0).squeeze(0)
+        self.com_pos, self.com_vel = com_pos / self.total_mass, com_vel / self.total_mass
+    
+    def compute_com(self):
+        self.compute_com_pos_vel(self.rigid_body_states[:,0:3], \
+                        self.rigid_body_states[:,7:10])
         
         
         
@@ -199,19 +199,12 @@ class Simulation:
         error = 0.0
         for nid in self.ees_z:
             diff_pos = another.pos()[nid] - self.pos()[nid]
-            diff_pos = diff_pos[-1] # only consider Z-component (height)
+            diff_pos = diff_pos[up_axis] # only consider Z-component (height)
             error += (diff_pos * diff_pos).item()
         error /= len(self.ees_z)
         return error
 
-    def compute_com_pos_vel(self, _pos, _vel):
-        com_pos = (self.properties_mass * _pos).sum(axis=0).squeeze(0)
-        com_vel = (self.properties_mass * _vel).sum(axis=0).squeeze(0)
-        self.com_pos, self.com_vel = com_pos / self.total_mass, com_vel / self.total_mass
-    
-    def compute_com(self):
-        return self.compute_com_pos_vel(self.rigid_body_states[:,0:3], \
-                        self.rigid_body_states[:,7:10])
+  
             
     def compute_balance_cost(self, another):
         """ balance cost plz see the SamCon paper """
@@ -223,7 +216,7 @@ class Simulation:
             sim_planar_vec = sim_com_pos - self.pos()[nid] 
             kin_planar_vec = kin_com_pos - another.pos()[nid]
             diff_planar_vec = sim_planar_vec - kin_planar_vec
-            diff_planar_vec = diff_planar_vec[:2] # only consider XY-component
+            diff_planar_vec = diff_planar_vec[0:up_axis] + diff_planar_vec[up_axis+1:] # only consider XY-component
             error += diff_planar_vec * diff_planar_vec
         error /= len(self.ees_xy) * 1.7
         return error.sum()

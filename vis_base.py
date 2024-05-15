@@ -16,11 +16,8 @@ if __name__ == '__main__':
     gym = gymapi.acquire_gym()
     compute_device_id, graphics_device_id = 0, 0
     num_envs = 1 
-    nSample, nSave = 1000, 100
     sample_dt = simulation_dt
     rounds = simulation_dt // sample_dt
-    
-    nExtend = nSample // nSave
 
     sim = build_sim(gym, simulation_dt)
     
@@ -37,7 +34,7 @@ if __name__ == '__main__':
 
     gym.prepare_sim(sim)
 
-    root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),SSStart/30)
+    root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),SSStart/simulation_dt)
 
     
     
@@ -66,7 +63,7 @@ if __name__ == '__main__':
         if gym.query_viewer_has_closed(viewer):
             break
 
-        root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),fid/30)
+        root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),fid/simulation_dt)
 
         joint_pos2 = joint_tensor.clone()
         # while torch.any(joint_pos2 > np.pi):

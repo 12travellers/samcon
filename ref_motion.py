@@ -392,7 +392,7 @@ class ReferenceMotion():
         root_tensor = torch.cat((root_pos, root_orient, root_lin_vel, root_ang_vel), -1)
         link_tensor = torch.cat((link_pos, link_orient, link_lin_vel, link_ang_vel), -1)
         joint_tensor = torch.stack((joint_pos, joint_vel), -1)
-        return root_tensor, link_tensor, joint_tensor
+        return root_tensor[0], link_tensor[0], joint_tensor[0]
     
     def state_partial(self, motion_ids, motion_times):
         n = len(motion_ids)
@@ -494,7 +494,7 @@ class ReferenceMotion():
         joint_pos = (quat2expmap(joint_q) + joint_p).view(joint_q.size(0), -1)[:, self.dofs]
         joint_vel = joint_vel.view(joint_q.size(0), -1)[:, self.dofs]
 
-        return joint_pos, joint_vel, root_pos, root_orient, root_lin_vel, root_ang_vel
+        return joint_pos[0], joint_vel[0], root_pos[0], root_orient[0], root_lin_vel[0], root_ang_vel[0]
     
     def state_joint_after_partial(self, joint_pos, joint_vel):
         joint_tensor = torch.stack((joint_pos, joint_vel), -1)
@@ -504,54 +504,3 @@ class ReferenceMotion():
         
         
         
-        
-        
-    
-    # def state_pos_vel(self, motion_ids, motion_times):
-    #     n = len(motion_ids)
-    #     n_key_links = len(self.key_links)
-    #     n_controllable_links = len(self.controllable_links)
-    #     device = self.device
-
-    #     root_pos0 = torch.empty((n, 3), dtype=torch.float, requires_grad=False)
-    #     link_pos0 = torch.empty((n, n_key_links, 3), dtype=torch.float, requires_grad=False)
-    #     link_pos1 = torch.empty((n, n_key_links, 3), dtype=torch.float, requires_grad=False)
-    #     link_lin_vel = torch.empty((n, n_key_links, 3), dtype=torch.float, requires_grad=False)
-
-    #     motion_len = self.motion_length[motion_ids]
-    #     num_frames = self.motion_n_frames[motion_ids]
-    #     dt = self.motion_dt[motion_ids]
-
-    #     phase = np.clip(motion_times / motion_len, 0.0, 1.0)
-    #     fid0 = (phase * (num_frames - 1)).astype(int)
-        
-        
-    #     fid1 = np.minimum(fid0 + 1, num_frames - 1)
-    #     frac = np.minimum((motion_times - fid0 * dt) / dt, 1.)
-
-    #     unique_ids = np.unique(motion_ids)
-    #     motion_ids = torch.from_numpy(motion_ids)
-    #     fid0 = torch.from_numpy(fid0)
-    #     fid1 = torch.from_numpy(fid1)
-    #     for uid in unique_ids:
-    #         ids, = torch.where(motion_ids == uid)
-    #         motion = self.motion[uid]
-
-    #         fid0_ = fid0[ids]
-    #         fid1_ = fid1[ids]
-
-    #         link_pos0[ids] = motion.pos[fid0_, :]
-    #         link_pos1[ids] = motion.pos[fid1_, :]
-
-    #         link_lin_vel[ids] = motion.lin_vel[fid0_, :]
-
-    #     frac = torch.tensor(frac, device=device,  dtype=root_pos0.dtype).unsqueeze_(-1)
-    #     frac_ = frac[..., None]
-
-    #     link_lin_vel = link_lin_vel.to(device)
-    #     link_pos0 = link_pos0.to(device)
-    #     link_pos1 = link_pos1.to(device)
-        
-    #     link_pos = ((1.0-frac_)*link_pos0).add_(frac_*link_pos1)
-
-    #     return link_pos, link_lin_vel

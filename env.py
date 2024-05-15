@@ -6,6 +6,8 @@ import numpy as np
 from ref_motion import compute_motion
 from scipy.spatial.transform import Rotation as sRot
 
+from cfg import n_links, controllable_links, dofs
+
 class Simulation:
     UP_AXIS = 2 
     stiff = [
@@ -22,7 +24,7 @@ class Simulation:
     #  'pelvis': 0, 'right_foot': 11, 'right_hand': 5, 'right_lower_arm': 4, 
     #  'right_shin': 10, 'right_thigh': 9, 'right_upper_arm': 3, 'torso': 1}
     
-    def __init__(self, gym, sim, asset, skeleton, idk, device, param = [0, 10, 60, 30, 10]):
+    def __init__(self, gym, sim, asset, skeleton, idk, device='cpu', param = [0, 10, 60, 30, 10]):
         self.param = param
         self.gym = gym
         self.sim = sim
@@ -104,8 +106,7 @@ class Simulation:
         p = candidate_p.clone()
         q = candidate_q.clone()
         state = state.reshape(-1, 2)
-        n_links, controllable_links = 15, [1, 2, 3, 4, 6, 7, 9, 10, 11, 12, 13, 14]
-        dofs = [3, 3, 3, 1, 3, 1, 3, 1, 3, 3, 1, 3]
+
         
         t = 0
         for i in range(0,len(controllable_links)):

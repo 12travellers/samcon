@@ -8,6 +8,7 @@ from ref_motion import ReferenceMotion
 from scipy.spatial.transform import Rotation as sRot
 from tqdm import tqdm
 import argparse,time
+from cfg import n_links, controllable_links, dofs, limits, param
  
 
 # ["torso", "head", 
@@ -15,25 +16,13 @@ import argparse,time
 #         "left_upper_arm", "left_lower_arm", 
 #         "right_thigh", "right_shin", "right_foot",
 #         "left_thigh", "left_shin", "left_foot"]
-limits = [.1,.1,.1,
-          
-          .2,.2,.2,
-          
-          .2,.2,.2,
-          .2,
-          
-          .2,.2,.2,
-          .2,
-          
-          .4,.4,.1,
-          .2,
-          .4,.2,.1,
-          
-          .4,.4,.1,
-          .2,
-          .4,.2,.1,
-          ]
-
+simulation_dt = 30
+save_file_name = 'walk_again.npy'
+init_pose = './assets/motions/clips_walk.yaml'
+character_model = './assets/humanoid.xml'
+asset_root = "/mnt/data/caoyuan/issac/samcon/assets/"
+asset_file = "amp_humanoid.xml"
+SSStart = 0
 
 def get_noisy(joint_pos, joint_vel, reference):
 
@@ -61,82 +50,65 @@ def refresh(gym, sim):
     gym.refresh_rigid_body_state_tensor(sim)
 
 
-
-
-if __name__ == '__main__':
-        
-    # 创建 ArgumentParser() 对象
-    # parser = argparse.ArgumentParser()
     
-    # parser.add_argument('-p', '--arg', nargs='+', type=int)
-
-    # args = vars(parser.parse_args( ))
-    # param = args['arg']
-    param = [5,10,60,30,50]
-    param = [0,5,20,100,50]
-    assert(len(param)==5)
-    
-    device = 'cuda:3'
-    gym = gymapi.acquire_gym()
-    compute_device_id, graphics_device_id = 3, 3
-    num_envs = 2000
-    nSample, nSave = 2000, 200
-    simulation_dt = 30
-    sample_dt = 30
-    
-    nExtend = nSample // nSave
-        
-    sim_params = gymapi.SimParams()
-
-    sim_params.use_gpu_pipeline = True
-    sim_params.physx.use_gpu = True
-    
-
-
-    # set common parameters
-    sim_params.dt = 1 / simulation_dt
-    sim_params.substeps = 2
-    sim_params.up_axis = gymapi.UP_AXIS_Z
-    sim_params.gravity = gymapi.Vec3(0.0, 0.0, -9.8)
-
-    # set PhysX-specific parameters
-    sim_params.physx.use_gpu = True
-    sim_params.physx.solver_type = 1
-    sim_params.physx.num_position_iterations = 4
-    sim_params.physx.num_velocity_iterations = 0
-    sim_params.physx.contact_offset = 0.01
-    sim_params.physx.rest_offset = 0.0
-
-
-    sim = gym.create_sim(compute_device_id, graphics_device_id, gymapi.SIM_PHYSX, sim_params)
-    
-    # configure the ground plane
-    plane_params = gymapi.PlaneParams()
-    plane_params.normal = gymapi.Vec3(0, 0, 1) # z-up!
-    plane_params.static_friction = 1
-    plane_params.dynamic_friction = 1
-    plane_params.restitution = 0
-
-    # create the ground plane
-    gym.add_ground(sim, plane_params)
-    
-    n_links, controllable_links = 15, [1, 2, 3, 4, 6, 7, 9, 10, 11, 12, 13, 14]
-    dofs = [3, 3, 3, 1, 3, 1, 3, 1, 3, 3, 1, 3]
-    init_pose = './assets/motions/clips_walk.yaml'
-    character_model = './assets/humanoid.xml'
+def read_data(gym, sim, device='cpu'):
     reference = ReferenceMotion(motion_file=init_pose, character_model=character_model,
             key_links=np.arange(n_links), controllable_links=controllable_links, dofs=dofs,
             device=device
         )
-    
-    asset_root = "/mnt/data/caoyuan/issac/samcon/assets/"
-    asset_file = "humanoid.xml"
     asset_opt = gymapi.AssetOptions()
     asset_opt.angular_damping = 0.01
     asset_opt.max_angular_velocity = 100.0
     asset_opt.default_dof_drive_mode = int(gymapi.DOF_MODE_POS)    
     asset = gym.load_asset(sim, asset_root, asset_file, asset_opt)
+    return asset, reference
+
+def build_sim(gym, simulation_dt, use_gpu = False):
+    sim_params = gymapi.SimParams()
+    # set device
+    if use_gpu:
+        compute_device_id, graphics_device_id = 2, 2
+    else:
+        compute_device_id, graphics_device_id = 0, 0
+    sim_params.use_gpu_pipeline = use_gpu
+    sim_params.physx.use_gpu = use_gpu
+    # set common parameters
+    sim_params.dt = 1 / simulation_dt
+    sim_params.substeps = 2
+    sim_params.up_axis = gymapi.UP_AXIS_Z
+    sim_params.gravity = gymapi.Vec3(0.0, 0.0, -9.8)
+    # set PhysX-specific parameters
+    sim_params.physx.solver_type = 1
+    sim_params.physx.num_position_iterations = 4
+    sim_params.physx.num_velocity_iterations = 0
+    sim_params.physx.contact_offset = 0.01
+    sim_params.physx.rest_offset = 0.0
+    #build simulation
+    sim = gym.create_sim(compute_device_id, graphics_device_id, gymapi.SIM_PHYSX, sim_params)
+    # configure the ground plane
+    plane_params = gymapi.PlaneParams()
+    plane_params.normal = gymapi.Vec3(0, 0, 1) # z-up!
+    plane_params.distance = 0
+    plane_params.static_friction = 1
+    plane_params.dynamic_friction = 1
+    plane_params.restitution = 0
+    # create the ground plane
+    gym.add_ground(sim, plane_params)
     
+    return sim
+
+
+
+if __name__ == '__main__':
+    sample_dt = simulation_dt
+    device = 'cuda:2'
+    gym = gymapi.acquire_gym()
+    num_envs = 2000
+    nSample, nSave = 2000, 200
+    nExtend = nSample // nSave
+    sim = build_sim(gym, simulation_dt, use_gpu=True)
+    asset, reference = read_data(gym, sim, device = device)
+    # build each environments(extra is for normal calculation)
     envs = []
     for i in range(num_envs+1):
         envs.append(Simulation(gym, sim, asset, reference.skeleton, i, device, param))
@@ -146,11 +118,10 @@ if __name__ == '__main__':
     
     gym.prepare_sim(sim)
     
-    SSStart = 0
+
     
     rounds = simulation_dt // sample_dt
     root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),SSStart/30)
-    root_tensor, link_tensor, joint_tensor = root_tensor[0], link_tensor[0], joint_tensor[0]
     best2 = [[root_tensor, joint_tensor], []]
     best = [best2 for i in range(nSave)]
     
@@ -159,16 +130,12 @@ if __name__ == '__main__':
     for fid in tqdm(range(SSStart+1,TIME)):
         
         root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),fid/30)
-        root_tensor, link_tensor, joint_tensor = root_tensor[0], link_tensor[0], joint_tensor[0]
 
         root_tensor_old, link_tensor_old, joint_tensor_old = reference.state(np.asarray([0]),(fid-1)/30)
-        root_tensor_old, link_tensor_old, joint_tensor_old = root_tensor_old[0], link_tensor_old[0], joint_tensor_old[0]
         
         joint_pos, joint_vel, root_pos, root_orient, root_lin_vel, root_ang_vel = \
             reference.state_partial(np.asarray([0]),fid/30)
-        joint_pos, joint_vel, root_pos, root_orient, root_lin_vel, root_ang_vel = \
-            joint_pos[0], joint_vel[0], root_pos[0], root_orient[0], root_lin_vel[0], root_ang_vel[0]
-
+       
         results = []
         SS = time.time()
         for id in range(0, nSave, num_envs//nExtend):
@@ -210,8 +177,6 @@ if __name__ == '__main__':
             
             target_state = np.concatenate([target_state], axis=0)
             target_state = torch.from_numpy(target_state).to(device)
-                
-
             # simulating...
             for k in range(rounds):
                 assert(gym.set_dof_position_target_tensor(sim, gymtorch.unwrap_tensor(target_state)))
@@ -237,7 +202,6 @@ if __name__ == '__main__':
         best = [best2[i][1] for i in range(nSample)]
         print('root_pos compare,', best[0][0][0][0:3], root_tensor[0:3])
         print('com_pos compare,', best[0][0][2], envs[num_envs].com_pos)
-        np.save(f'best.npy',\
-            np.asarray(best[0][1]))
+        np.save(save_file_name, np.asarray(best[0][1]))
     
     gym.destroy_sim(sim)

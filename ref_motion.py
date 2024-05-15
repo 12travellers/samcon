@@ -42,6 +42,7 @@ def load_mjcf(filename: str):
         else:
             q = list(map(float, q.split()))
             q = np.array([q[1], q[2], q[3], q[0]])
+
         nodes.append(n)
         parents.append(pid)
         t.append(p)

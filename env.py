@@ -101,41 +101,41 @@ class Simulation:
         
         
         
-    def compute_motion_from_state(self, state, candidate_p, candidate_q):
-        skeleton = self.skeleton
-        p = candidate_p.clone()
-        q = candidate_q.clone()
-        state = state.reshape(-1, 2)
+    # def compute_motion_from_state(self, state, candidate_p, candidate_q):
+    #     skeleton = self.skeleton
+    #     p = candidate_p.clone()
+    #     q = candidate_q.clone()
+    #     state = state.reshape(-1, 2)
 
         
-        t = 0
-        for i in range(0,len(controllable_links)):
-            dcm = None
-            if dofs[i] == 3:
-                dcm = state[t:t+3,0].cpu()
-            else:
-                dcm = [0,state[t][0].cpu(),0]
-            dcm = np.asarray(dcm)
-            q[controllable_links[i]] = \
-                torch.from_numpy(sRot.from_euler("xyz",dcm,degrees=False).as_quat())
-            t+=dofs[i]
+    #     t = 0
+    #     for i in range(0,len(controllable_links)):
+    #         dcm = None
+    #         if dofs[i] == 3:
+    #             dcm = state[t:t+3,0].cpu()
+    #         else:
+    #             dcm = [0,state[t][0].cpu(),0]
+    #         dcm = np.asarray(dcm)
+    #         q[controllable_links[i]] = \
+    #             torch.from_numpy(sRot.from_euler("xyz",dcm,degrees=False).as_quat())
+    #         t+=dofs[i]
             
-        root_tensor = self.root_tensor
-        root_positions = root_tensor[0:3]
-        root_orientations = root_tensor[3:7]
+    #     root_tensor = self.root_tensor
+    #     root_positions = root_tensor[0:3]
+    #     root_orientations = root_tensor[3:7]
         
-        self.root_orient = root_orientations
-        self.root_ang_vel = root_tensor[10:13]
+    #     self.root_orient = root_orientations
+    #     self.root_ang_vel = root_tensor[10:13]
         
-        for nid in range(len(skeleton.nodes)):
-            pid = skeleton.parents[nid]
-            if pid == -1:
-                p[nid] = root_positions
-                q[nid] = root_orientations
-            else:
-                p[nid] *= 0
+    #     for nid in range(len(skeleton.nodes)):
+    #         pid = skeleton.parents[nid]
+    #         if pid == -1:
+    #             p[nid] = root_positions
+    #             q[nid] = root_orientations
+    #         else:
+    #             p[nid] *= 0
             
-        return compute_motion(30, self.skeleton, q.unsqueeze(0), p.unsqueeze(0), early_stop=True)
+    #     return compute_motion(30, self.skeleton, q.unsqueeze(0), p.unsqueeze(0), early_stop=True)
     
     def compute_com_pos_vel(self, _pos, _vel):
         com_pos = (self.properties_mass * _pos).sum(axis=0).squeeze(0)

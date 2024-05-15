@@ -138,13 +138,17 @@ from scipy.spatial.transform import Rotation as R
 
 
 def euler2quaternion(euler):   #欧拉角转四元数
-    r = R.from_euler('xyz', euler, degrees=True)
+    r = R.from_euler('xyz', euler,)
     quaternion = r.as_quat()
     return quaternion.tolist()
 def quaternion2euler(quaternion): #四元数转欧拉角
     r = R.from_quat(quaternion)
-    euler = r.as_euler('xyz', degrees=True)
+    euler = r.as_euler('xzy',)
     return euler
+def trans_coord(c):
+    c = quaternion2euler(c)
+    c[1],c[2] = -c[2],c[1]
+    return euler2quaternion(c)
 # print(len(cqcq["Frames"]))
 # print(len(cqcq["Frames"][0]))
 # exit(0)
@@ -155,35 +159,28 @@ dict2 = []
 name = ['pelvis', 'torso', 'head', 'right_upper_arm', 'right_lower_arm', 'right_hand', 'left_upper_arm', 'left_lower_arm', 'left_hand', 'right_thigh', 'right_shin', 'right_foot', 'left_thigh', 'left_shin', 'left_foot']
 name = ['pelvis', 'torso', 'head', 'right_thigh', 'right_shin', 'right_foot','right_upper_arm', 'right_lower_arm', 'right_hand',\
     'left_thigh', 'left_shin', 'left_foot','left_upper_arm', 'left_lower_arm', 'left_hand',]
-single_dof = [4,7,9,12]
+single_dof = [4,7,10,13]
 for i in range(len(cqcq["Frames"])):
     eq = cqcq['Frames'][i][1:]
-    print(eq)
+
     dict= {}
     # dict['pelvis'] = [root[i].tolist(),rotation[i][0].tolist()]
-    dict['pelvis'] = [eq[0:3],eq[4:7]+[eq[3]]]
+    dict['pelvis'] = [[eq[0],eq[2],eq[1]],trans_coord(eq[4:7]+[eq[3]])]
     t = 7
     for j in range(1,len(name)):
         if ('hand' in name[j]):
             dict[name[j]] = [0.0,0.0,0.0,1.0]
             t+=0
         elif(j in single_dof):
-            if(eq[t]>1):
-                print(eq[t])
-            dict[name[j]] = euler2quaternion([0.0,0.0,eq[t]])
+            dict[name[j]] = euler2quaternion([0.0,-eq[t],0.0])
             t+=1
         else:
-            dict[name[j]] = eq[t+1:t+4]+[eq[t]]
-            # c = quaternion2euler(eq[t+1:t+4]+[eq[t]])
-            # c[1],c[2] = c[2],c[1]
-            # dict[name[j]] = euler2quaternion(c)
-            
+            dict[name[j]] = trans_coord(eq[t+1:t+4]+[eq[t]])
             t+=4
     dict2 += [dict]
 all_dict = {}
 all_dict['fps'] = 60
 all_dict["frames"] = dict2
-print(all_dict)
 
 import json
 file_obj=open('assets/motions/roll.json','w',encoding='utf-8')

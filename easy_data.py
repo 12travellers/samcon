@@ -142,13 +142,65 @@ def euler2quaternion(euler):   #欧拉角转四元数
     quaternion = r.as_quat()
     return quaternion.tolist()
 def quaternion2euler(quaternion): #四元数转欧拉角
-    r = R.from_quat(quaternion)
-    euler = r.as_euler('xzy',)
-    return euler
+    # r = R.from_quat(quaternion)
+    # euler = r.as_euler('xzy',)
+    # return euler
+    x,y,z,w = quaternion[0],quaternion[1],quaternion[2],quaternion[3]
+    sinr = 2.0 * (w * x + y * z)
+    cosr = 1.0 - 2.0 * (x * x + y * y)
+    x = math.atan2(sinr, cosr)  
+    
+    sinp = 2.0 * (w * y - z * x)
+    y = 0
+
+    if(math.fabs(sinp)>1):
+        if sinp>0:
+            y = math.pi/2
+        else:
+            y = -math.pi/2
+	
+    else:
+        y = math.asin(sinp)
+	
+    siny = 2.0 * (w * z + x * y)
+    cosy = 1.0 - 2.0 * (y * y+ z * z)
+    z = math.atan2(siny, cosy)
+
+    return [x,y,z]
+
+def euler2mat(c):
+    x,y,z = c[0],c[1],c[2]
+
+    x_s = math.sin(x)
+    x_c = math.cos(x)
+    y_s = math.sin(y)
+    y_c = math.cos(y)
+    z_s = math.sin(z)
+    z_c = math.cos(z)
+    mat = [[0,0,0],[0,0,0],[0,0,0]]
+    mat[0][0] = y_c * z_c
+    mat[1][0] =y_c * z_s
+    mat[2][0] =-y_s
+    
+    mat[0][1] =x_s * y_s * z_c - x_c * z_s
+    mat[1][1] =x_s * y_s * z_s + x_c * z_c
+    mat[2][1] =x_s * y_c
+
+    mat[0][2] =x_c * y_s * z_c + x_s * z_s
+    mat[1][2] =x_c * y_s * z_s - x_s * z_c
+    mat[2][2] = x_c * y_c
+    return mat
 def trans_coord(c):
     c = quaternion2euler(c)
-    c[1],c[2] = -c[2],c[1]
-    return euler2quaternion(c)
+    c = euler2mat(c)
+    c = np.asarray(c)
+    d = np.asarray([[-1,0,0],[0,0,-1],[0,1,0]])
+    c = np.linalg.inv(d)@c@d
+    
+    r = R.from_matrix(c)
+    quaternion = r.as_quat()
+    return quaternion.tolist()
+
 # print(len(cqcq["Frames"]))
 # print(len(cqcq["Frames"][0]))
 # exit(0)

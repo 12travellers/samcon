@@ -16,9 +16,9 @@ from cfg import n_links, controllable_links, dofs, limits, param, up_axis
 #         "left_upper_arm", "left_lower_arm", 
 #         "right_thigh", "right_shin", "right_foot",
 #         "left_thigh", "left_shin", "left_foot"]
-simulation_dt = 60
-save_file_name = 'walk_again2.npy'
-init_pose = './assets/motions/roll.yaml'
+simulation_dt = 30
+save_file_name = 'debug.npy'
+init_pose = './assets/motions/clips_walk.yaml'
 character_model = './assets/humanoid.xml'
 asset_root = "/mnt/data/caoyuan/issac/samcon/assets/"
 asset_file = "humanoid.xml"
@@ -107,6 +107,8 @@ def build_sim(gym, simulation_dt, use_gpu = False):
 
 
 if __name__ == '__main__':
+    all_target_states = []
+    
     sample_dt = simulation_dt
     device = 'cuda:2'
     gym = gymapi.acquire_gym()
@@ -135,6 +137,7 @@ if __name__ == '__main__':
     TIME = reference.motion[0].pos.shape[0]
     TIME = 300
     for fid in tqdm(range(SSStart+1,TIME)):
+        SS = time.time()
         
         root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),fid/simulation_dt)
 
@@ -144,8 +147,8 @@ if __name__ == '__main__':
             reference.state_partial(np.asarray([0]),fid/simulation_dt)
        
         results = []
-        SS = time.time()
         for id in range(0, nSave, num_envs//nExtend):
+            SS = time.time()
             target_state = []
             # setting all to source status
             ROOT_TENSOR, JOINT_TENSOR = [], []
@@ -154,44 +157,47 @@ if __name__ == '__main__':
                     envs[i*nExtend+j].overlap(best[id+i][0], best[id+i][1].copy())
 
                     root_tensor2, joint_tensor2 = best[id+i][0][0], best[id+i][0][1]
-                    ROOT_TENSOR += [root_tensor2.unsqueeze(0).cpu().numpy()]
-                    JOINT_TENSOR += [joint_tensor2.cpu().numpy()]
+                    ROOT_TENSOR += [root_tensor2.unsqueeze(0)]
+                    JOINT_TENSOR += [joint_tensor2]
                     
-            ROOT_TENSOR += [root_tensor_old.unsqueeze(0).cpu().numpy()]
-            JOINT_TENSOR += [joint_tensor_old.cpu().numpy()]
+            ROOT_TENSOR += [root_tensor_old.unsqueeze(0)]
+            JOINT_TENSOR += [joint_tensor_old]
             
             ROOT_TENSOR, JOINT_TENSOR = \
-                np.concatenate([ROOT_TENSOR], axis=0),np.concatenate([JOINT_TENSOR], axis=0) 
+                torch.cat(ROOT_TENSOR, axis=0),torch.cat(JOINT_TENSOR, axis=0) 
 
-            ROOT_TENSOR, JOINT_TENSOR = \
-                torch.from_numpy(ROOT_TENSOR).to(device), torch.from_numpy(JOINT_TENSOR).to(device)
             
+            print(time.time()-SS)
             
+            SS = time.time()
             assert(gym.set_actor_root_state_tensor(sim,
                 gymtorch.unwrap_tensor(ROOT_TENSOR)))
             assert(gym.set_dof_state_tensor(sim,
                 gymtorch.unwrap_tensor(JOINT_TENSOR)))
+            print(time.time()-SS)
             
             
             # making pd-control's goal
+            SS = time.time()
             for i in range(0, num_envs//nExtend):
                 for j in range(0, nExtend):
                     target_state2 = get_noisy(joint_pos, joint_vel, reference)
-                    target_state.append(target_state2.cpu().numpy())
-                    envs[i*nExtend+j].act(target_state2, record=1)
-                    
-            target_state.append(joint_pos.cpu().numpy())
-            
-            target_state = np.concatenate([target_state], axis=0)
-            target_state = torch.from_numpy(target_state).to(device)
+                    envs[i*nExtend+j].act(len(target_state), record=1)
+                    target_state.append(target_state2)
+            target_state.append(joint_pos)
+            all_target_states.append(target_state)
+            target_state = torch.cat(target_state, axis=0)
+            print(time.time()-SS)
             # simulating...
             for k in range(rounds):
+                SS = time.time()
                 assert(gym.set_dof_position_target_tensor(sim, gymtorch.unwrap_tensor(target_state)))
-                
+                print(time.time()-SS)
+                SS = time.time()
                 gym.simulate(sim)
                 gym.fetch_results(sim, True)
-                
                 refresh(gym, sim)
+                print(time.time()-SS)
             
             # calculating cost
                       
@@ -209,6 +215,10 @@ if __name__ == '__main__':
         best = [best2[i][1] for i in range(nSample)]
         print('root_pos compare,', best[0][0][0][0:3], root_tensor[0:3])
         print('com_pos compare,', best[0][0][2], envs[num_envs].com_pos)
-        np.save(save_file_name, np.asarray(best[0][1]))
+        if fid % 10 == 0:
+            saved_path = []
+            for i in range(best[0][1]):
+                saved_path+=[all_target_states[i][best[0][1][1]].cpu().unsqueeze(0).numpy()]
+            np.save(save_file_name, np.concatenate([saved_path],axis=0))
     
     gym.destroy_sim(sim)

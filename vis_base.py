@@ -75,7 +75,6 @@ if __name__ == '__main__':
         ROOT_TENSOR, JOINT_TENSOR = [], []
         for i in range(0, num_envs):
             ROOT_TENSOR += [root_tensor.cpu().unsqueeze(0).numpy()]
-            # JOINT_TENSOR += [joint_tensor.cpu().numpy()]
             JOINT_TENSOR += [joint_pos2.cpu().numpy()]
             
 

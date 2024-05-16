@@ -89,9 +89,9 @@ class Simulation:
     def cost(self, another):
         return self.compute_total_cost(another)
         
-    def act(self, target_state, record=0):
+    def act(self, target_state_id, record=0):
         if record:
-            self.trajectory += [target_state.cpu().numpy()]
+            self.trajectory.append(target_state_id)
     
     def pos(self):
         return self.rigid_body_states[:,0:3]
@@ -216,7 +216,8 @@ class Simulation:
             sim_planar_vec = sim_com_pos - self.pos()[nid] 
             kin_planar_vec = kin_com_pos - another.pos()[nid]
             diff_planar_vec = sim_planar_vec - kin_planar_vec
-            diff_planar_vec = diff_planar_vec[0:up_axis] + diff_planar_vec[up_axis+1:] # only consider XY-component
+            diff_planar_vec[up_axis] = 0
+            # diff_planar_vec = diff_planar_vec[:up_axis] + diff_planar_vec[up_axis+1:] # only consider XY-component
             error += diff_planar_vec * diff_planar_vec
         error /= len(self.ees_xy) * 1.7
         return error.sum()

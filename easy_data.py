@@ -191,10 +191,12 @@ def euler2mat(c):
     mat[2][2] = x_c * y_c
     return mat
 def trans_coord(c):
+    # return [-c[0],-c[2],c[1],c[3]]
     c = quaternion2euler(c)
     c = euler2mat(c)
     c = np.asarray(c)
     d = np.asarray([[-1,0,0],[0,0,-1],[0,1,0]])
+    d = np.linalg.inv(d)
     c = np.linalg.inv(d)@c@d
     
     r = R.from_matrix(c)
@@ -217,7 +219,7 @@ for i in range(len(cqcq["Frames"])):
 
     dict= {}
     # dict['pelvis'] = [root[i].tolist(),rotation[i][0].tolist()]
-    dict['pelvis'] = [[eq[0],eq[2],eq[1]],trans_coord(eq[4:7]+[eq[3]])]
+    dict['pelvis'] = [[-eq[0],-eq[2],eq[1]],trans_coord(eq[4:7]+[eq[3]])]
     t = 7
     for j in range(1,len(name)):
         if ('hand' in name[j]):

@@ -2,7 +2,7 @@ from isaacgym import gymtorch
 from isaacgym import gymapi
 import torch
 
-from env import Simulation
+from env import *
 import numpy as np
 from ref_motion import ReferenceMotion
 from scipy.spatial.transform import Rotation as sRot
@@ -18,11 +18,14 @@ from cfg import n_links, controllable_links, dofs, limits, param, up_axis
 #         "left_thigh", "left_shin", "left_foot"]
 simulation_dt = 30
 save_file_name = 'debug.npy'
-init_pose = './assets/motions/clips_walk.yaml'
-character_model = './assets/humanoid.xml'
+init_pose = './assets/motions/roll.yaml'
+character_model = './assets/amp_humanoid.xml'
 asset_root = "/mnt/data/caoyuan/issac/samcon/assets/"
-asset_file = "humanoid.xml"
+asset_file = "amp_humanoid.xml"
 SSStart = 0
+
+
+
 
 def get_noisy(joint_pos, joint_vel, reference):
 
@@ -43,6 +46,13 @@ def get_noisy(joint_pos, joint_vel, reference):
     joint_pos2 = joint_pos2.reshape(joint_pos.shape)
     
     return joint_pos2 #pos-driven pd control
+
+def get_full_noisy(joint_pos, limits, device):
+    # noise = np.random.random(joint_pos.shape[0]) # sample from [0, 1) uniform distribution
+    noise = torch.rand(joint_pos.shape, device = device)
+    return joint_pos + (noise*limits_gpu*np.pi).to(device)
+    
+
 
 def refresh(gym, sim):
     gym.refresh_actor_root_state_tensor(sim)
@@ -110,13 +120,15 @@ if __name__ == '__main__':
     all_target_states = []
     
     sample_dt = simulation_dt
-    device = 'cuda:2'
     gym = gymapi.acquire_gym()
-    num_envs = 5000
     nSample, nSave = 5000, 200
+    num_envs = nSample
     nExtend = nSample // nSave
+    device = 'cuda:2'
     sim = build_sim(gym, simulation_dt, use_gpu=True)
     asset, reference = read_data(gym, sim, device = device)
+    limits_gpu = torch.tensor(limits).to(device)
+    param_gpu = torch.tensor(param).to(device)
     # build each environments(extra is for normal calculation)
     envs = []
     for i in range(num_envs+1):
@@ -136,8 +148,16 @@ if __name__ == '__main__':
     
     TIME = reference.motion[0].pos.shape[0]
     TIME = 300
+    
+    
+    _rigid_body_states = gym.acquire_rigid_body_state_tensor(sim)
+    BODY = gymtorch.wrap_tensor(_rigid_body_states)[:-15].reshape(-1,15,13)
+
+    _root_tensor = gym.acquire_actor_root_state_tensor(sim)
+    ROOT = gymtorch.wrap_tensor(_root_tensor)[:-1].reshape(-1,13)
+    
+    
     for fid in tqdm(range(SSStart+1,TIME)):
-        SS = time.time()
         
         root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),fid/simulation_dt)
 
@@ -147,9 +167,9 @@ if __name__ == '__main__':
             reference.state_partial(np.asarray([0]),fid/simulation_dt)
        
         results = []
+        results_for_sort = []
         for id in range(0, nSave, num_envs//nExtend):
             SS = time.time()
-            target_state = []
             # setting all to source status
             ROOT_TENSOR, JOINT_TENSOR = [], []
             for i in range(0, num_envs//nExtend):
@@ -167,57 +187,79 @@ if __name__ == '__main__':
                 torch.cat(ROOT_TENSOR, axis=0),torch.cat(JOINT_TENSOR, axis=0) 
 
             
-            print(time.time()-SS)
+            print('load initial states', time.time()-SS)
             
             SS = time.time()
             assert(gym.set_actor_root_state_tensor(sim,
                 gymtorch.unwrap_tensor(ROOT_TENSOR)))
             assert(gym.set_dof_state_tensor(sim,
                 gymtorch.unwrap_tensor(JOINT_TENSOR)))
-            print(time.time()-SS)
+            print('GYM set initial state',time.time()-SS)
             
             
             # making pd-control's goal
             SS = time.time()
+            target_state = []
             for i in range(0, num_envs//nExtend):
                 for j in range(0, nExtend):
-                    target_state2 = get_noisy(joint_pos, joint_vel, reference)
+                    # target_state2 = get_noisy(joint_pos, joint_vel, reference)
                     envs[i*nExtend+j].act(len(target_state), record=1)
-                    target_state.append(target_state2)
-            target_state.append(joint_pos)
-            all_target_states.append(target_state)
+                    target_state.append(joint_pos.unsqueeze(0))
+
             target_state = torch.cat(target_state, axis=0)
-            print(time.time()-SS)
+            target_state = get_full_noisy(target_state, limits_gpu, device)
+            target_state = torch.cat((target_state,joint_pos.unsqueeze(0)), axis=0)
+            all_target_states.append(target_state)
+            print('getting target states',time.time()-SS)
             # simulating...
             for k in range(rounds):
                 SS = time.time()
                 assert(gym.set_dof_position_target_tensor(sim, gymtorch.unwrap_tensor(target_state)))
-                print(time.time()-SS)
+                print('GYM set target states', time.time()-SS)
                 SS = time.time()
                 gym.simulate(sim)
                 gym.fetch_results(sim, True)
                 refresh(gym, sim)
-                print(time.time()-SS)
+                print('GYM stimulate and refresh states',time.time()-SS)
             
             # calculating cost
-                      
-            for ie in envs:
-                ie.compute_com()
+            SS = time.time()  
+            # for ie in envs:
+            #     ie.compute_com()
+            envs[num_envs].compute_com()
+            print('compute COM',time.time()-SS)
+            SS = time.time()  
+            full_cost = []
+            full_cost += [torch.zeros(num_envs, device=device)]
+            full_cost += compute_full_ee_cost(BODY,envs[num_envs])
+            full_cost += compute_full_root_cost(ROOT,envs[num_envs])
+            full_cost += compute_full_balance_cost(BODY,envs[num_envs])
+            
+            full_cost = torch.stack(full_cost,axis=0)
+            total_cost = (full_cost.transpose(1,0) * param_gpu).sum(-1)
+            # print(full_cost,total_cost)
+            # exit(0)
+            print('compute cost',time.time()-SS)
+            results_for_sort = total_cost
+            SS = time.time()  
+            
             for i in range(num_envs):
-                results.append([envs[i].cost(envs[num_envs])
-                                ,envs[i].history()])
+                results.append([total_cost[i],envs[i].history()])
+            
+            print('clean up ',time.time()-SS)
         # store nSample better ones
-        best2 = sorted(results, key=lambda x:x[0][0])
-        print()
-        print('loss:', best2[0][0])
+        SS = time.time()  
+        ids = torch.argsort(results_for_sort)
+        # best2 = sorted(results, key=lambda x:x[0][0])
+        print('sort results',time.time()-SS)
+        print('loss:', results[ids[0]][0])
         
-        
-        best = [best2[i][1] for i in range(nSample)]
+        best = [ results[ids[i]][1] for i in range(nSave)]
         print('root_pos compare,', best[0][0][0][0:3], root_tensor[0:3])
         print('com_pos compare,', best[0][0][2], envs[num_envs].com_pos)
         if fid % 10 == 0:
             saved_path = []
-            for i in range(best[0][1]):
+            for i in range(len(best[0][1])):
                 saved_path+=[all_target_states[i][best[0][1][1]].cpu().unsqueeze(0).numpy()]
             np.save(save_file_name, np.concatenate([saved_path],axis=0))
     

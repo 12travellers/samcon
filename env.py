@@ -148,6 +148,17 @@ class Simulation:
         
         
         
+    def cost_provided(self, root_cost, ee_cost, balance_cost, com_cost):
+        pose_w, root_w, ee_w, balance_w, com_w =\
+            self.param[0], self.param[1], self.param[2], self.param[3], self.param[4]
+        pose_cost = 0
+        total_cost = pose_w * pose_cost + \
+                     root_w * root_cost + \
+                     ee_w * ee_cost + \
+                     balance_w * balance_cost + \
+                     com_w * com_cost
+        return total_cost, pose_cost, root_cost, ee_cost, balance_cost, com_cost
+    
     def compute_total_cost(self, another):
         pose_w, root_w, ee_w, balance_w, com_w =\
             self.param[0], self.param[1], self.param[2], self.param[3], self.param[4]
@@ -235,3 +246,38 @@ class Simulation:
         return error.sum()
 
         
+def compute_full_ee_cost(BODY, another):
+    diff_pos = another.pos()[another.ees_z,:] - BODY[:,another.ees_z,0:3]
+    diff_pos = diff_pos[:,:,up_axis] # only consider Z-component (height)
+    error = (diff_pos * diff_pos).sum(axis=-1)
+    error /= len(another.ees_z)
+    return [error]
+
+
+def compute_full_balance_cost(BODY, another):
+    POS, VEL = BODY[:,:,0:3], BODY[:,:,7:10]
+    COM_POS = (another.properties_mass * POS).sum(axis=1) / another.total_mass
+    COM_VEL = (another.properties_mass * VEL).sum(axis=1) / another.total_mass
+    
+    diff_com_pos = COM_POS - another.com_pos
+    diff_com_vel = COM_VEL - another.com_vel
+    
+    error_com = 1.0 * (diff_com_pos * diff_com_pos) + 0.1 * (diff_com_vel * diff_com_vel)
+    error_com = error_com.sum(axis=-1)
+        
+    sim_planar_vec = COM_POS.unsqueeze(1) - BODY[:,another.ees_xy,0:3]
+    kin_planar_vec = another.com_pos - another.pos()[another.ees_xy,:] 
+    diff_planar_vec = sim_planar_vec - kin_planar_vec
+    diff_planar_vec[:,:,up_axis] = 0 # only consider XY-component
+    error_balance = (diff_planar_vec * diff_planar_vec).sum(axis=-1).sum(axis=-1)
+    error_balance /= len(another.ees_xy) * 1.7
+    
+    return [error_com, error_balance]
+    
+def compute_full_root_cost(ROOT, another):
+    # done!
+    """ orientation + angular velocity of root in world coordinate """
+    diff_root_Q = another.root_tensor[0:3] - ROOT[:,0:3]
+    diff_root_w = another.root_tensor[10:13] - ROOT[:,10:13]
+    error = 1.0 * (diff_root_Q* diff_root_Q) + 0.1 * (diff_root_w* diff_root_w)
+    return [error.sum(axis=-1)]

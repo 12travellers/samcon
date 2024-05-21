@@ -18,11 +18,11 @@ from cfg import n_links, controllable_links, dofs, limits, param, up_axis
 #         "left_thigh", "left_shin", "left_foot"]
 simulation_dt = 30
 save_file_name = 'debug.npy'
-init_pose = './assets/motions/roll.yaml'
-character_model = './assets/amp_humanoid.xml'
+init_pose = './assets/motions/clips_walk.yaml'
+character_model = './assets/humanoid.xml'
 asset_root = "/mnt/data/caoyuan/issac/samcon/assets/"
-asset_file = "amp_humanoid.xml"
-SSStart = 0
+asset_file = "humanoid.xml"
+SSStart = 30
 
 
 
@@ -32,8 +32,7 @@ def get_noisy(joint_pos, joint_vel, reference):
     joint_pos2 = joint_pos.clone().reshape(-1)
     noise = np.random.random(joint_pos2.shape[0]) # sample from [0, 1) uniform distribution
     for i in range(len(limits)): # transform to [-limit, limit)
-        noise[i] = 2 * limits[i] * noise[i] - limits[i]
-        noise[i] *= np.pi
+        noise[i] = (2 * noise[i] - 1 ) * limits[i] * np.pi
 
     
     joint_pos2 += torch.from_numpy(noise).to(joint_pos2.device)
@@ -121,7 +120,7 @@ if __name__ == '__main__':
     
     sample_dt = simulation_dt
     gym = gymapi.acquire_gym()
-    nSample, nSave = 5000, 200
+    nSample, nSave = 10000, 500
     num_envs = nSample
     nExtend = nSample // nSave
     device = 'cuda:2'
@@ -136,6 +135,12 @@ if __name__ == '__main__':
     refresh(gym, sim)
     for ei in envs:
         ei.build_tensor()
+    _rigid_body_states = gym.acquire_rigid_body_state_tensor(sim)
+    print(gymtorch.wrap_tensor(_rigid_body_states).shape)
+    BODY = gymtorch.wrap_tensor(_rigid_body_states)[:-15].reshape(-1,15,13)
+
+    _root_tensor = gym.acquire_actor_root_state_tensor(sim)
+    ROOT = gymtorch.wrap_tensor(_root_tensor)[:-1].reshape(-1,13)
     
     gym.prepare_sim(sim)
     
@@ -150,11 +155,7 @@ if __name__ == '__main__':
     TIME = 300
     
     
-    _rigid_body_states = gym.acquire_rigid_body_state_tensor(sim)
-    BODY = gymtorch.wrap_tensor(_rigid_body_states)[:-15].reshape(-1,15,13)
 
-    _root_tensor = gym.acquire_actor_root_state_tensor(sim)
-    ROOT = gymtorch.wrap_tensor(_root_tensor)[:-1].reshape(-1,13)
     
     
     for fid in tqdm(range(SSStart+1,TIME)):
@@ -255,8 +256,9 @@ if __name__ == '__main__':
         print('loss:', results[ids[0]][0])
         
         best = [ results[ids[i]][1] for i in range(nSave)]
+        envs[ids[0]].compute_com()
         print('root_pos compare,', best[0][0][0][0:3], root_tensor[0:3])
-        print('com_pos compare,', best[0][0][2], envs[num_envs].com_pos)
+        print('com_pos compare,',  envs[ids[0]].com_pos, envs[num_envs].com_pos)
         if fid % 10 == 0:
             saved_path = []
             for i in range(len(best[0][1])):

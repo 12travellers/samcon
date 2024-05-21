@@ -75,7 +75,8 @@ class Simulation:
         for i in range(len(self.properties)):
             self.properties_mass[i] = self.properties[i].mass
             self.total_mass += self.properties[i].mass
-        self.properties_mass = self.properties_mass.unsqueeze(-1).to(self.device)
+        self.properties_mass = self.properties_mass.to(self.device)
+        
         
     def vector_up(self, val: float, base_vector=None):
         if base_vector is None:
@@ -138,8 +139,8 @@ class Simulation:
     #     return compute_motion(30, self.skeleton, q.unsqueeze(0), p.unsqueeze(0), early_stop=True)
     
     def compute_com_pos_vel(self, _pos, _vel):
-        com_pos = (self.properties_mass * _pos).sum(axis=0).squeeze(0)
-        com_vel = (self.properties_mass * _vel).sum(axis=0).squeeze(0)
+        com_pos = (self.properties_mass.unsqueeze(-1) * _pos).sum(axis=0).squeeze(0)
+        com_vel = (self.properties_mass.unsqueeze(-1) * _vel).sum(axis=0).squeeze(0)
         self.com_pos, self.com_vel = com_pos / self.total_mass, com_vel / self.total_mass
     
     def compute_com(self):
@@ -148,102 +149,102 @@ class Simulation:
         
         
         
-    def cost_provided(self, root_cost, ee_cost, balance_cost, com_cost):
-        pose_w, root_w, ee_w, balance_w, com_w =\
-            self.param[0], self.param[1], self.param[2], self.param[3], self.param[4]
-        pose_cost = 0
-        total_cost = pose_w * pose_cost + \
-                     root_w * root_cost + \
-                     ee_w * ee_cost + \
-                     balance_w * balance_cost + \
-                     com_w * com_cost
-        return total_cost, pose_cost, root_cost, ee_cost, balance_cost, com_cost
+    # def cost_provided(self, root_cost, ee_cost, balance_cost, com_cost):
+    #     pose_w, root_w, ee_w, balance_w, com_w =\
+    #         self.param[0], self.param[1], self.param[2], self.param[3], self.param[4]
+    #     pose_cost = 0
+    #     total_cost = pose_w * pose_cost + \
+    #                  root_w * root_cost + \
+    #                  ee_w * ee_cost + \
+    #                  balance_w * balance_cost + \
+    #                  com_w * com_cost
+    #     return total_cost, pose_cost, root_cost, ee_cost, balance_cost, com_cost
     
-    def compute_total_cost(self, another):
-        pose_w, root_w, ee_w, balance_w, com_w =\
-            self.param[0], self.param[1], self.param[2], self.param[3], self.param[4]
-        # pose_w, root_w, ee_w, balance_w, com_w = 0, 10, 60, 0, 0
-        pose_cost = 0#self.compute_pose_cost(another)
-        root_cost = self.compute_root_cost(another)
-        ee_cost = self.compute_ee_cost(another)
-        balance_cost = self.compute_balance_cost(another)
-        com_cost = self.compute_com_cost(another)
-        total_cost = pose_w * pose_cost + \
-                     root_w * root_cost + \
-                     ee_w * ee_cost + \
-                     balance_w * balance_cost + \
-                     com_w * com_cost
-        return total_cost, pose_cost, root_cost, ee_cost, balance_cost, com_cost
+    # def compute_total_cost(self, another):
+    #     pose_w, root_w, ee_w, balance_w, com_w =\
+    #         self.param[0], self.param[1], self.param[2], self.param[3], self.param[4]
+    #     # pose_w, root_w, ee_w, balance_w, com_w = 0, 10, 60, 0, 0
+    #     pose_cost = 0#self.compute_pose_cost(another)
+    #     root_cost = self.compute_root_cost(another)
+    #     ee_cost = self.compute_ee_cost(another)
+    #     balance_cost = self.compute_balance_cost(another)
+    #     com_cost = self.compute_com_cost(another)
+    #     total_cost = pose_w * pose_cost + \
+    #                  root_w * root_cost + \
+    #                  ee_w * ee_cost + \
+    #                  balance_w * balance_cost + \
+    #                  com_w * com_cost
+    #     return total_cost, pose_cost, root_cost, ee_cost, balance_cost, com_cost
 
-    def compute_pose_cost(self, another):
-        # no need
-        """ pose + angular velocity of internal joints in local coordinate """
-        error = 0.0
-        skeleton = self.skeleton
+    # def compute_pose_cost(self, another):
+    #     # no need
+    #     """ pose + angular velocity of internal joints in local coordinate """
+    #     error = 0.0
+    #     skeleton = self.skeleton
 
-        for i in range(1,len(skeleton.nodes)):
-            # _, diff_pose_pos = self._pb_client.getAxisAngleFromQuaternion(
-            #     self._pb_client.getDifferenceQuaternion(sim_joint_ps[i], kin_joint_ps[i])
-            # )
-            # diff_pos_vel = sim_joint_vs[i] - kin_joint_vs[i]
-            p = skeleton.parents[i]
-            diff_pose_pos = (self.pos()[i]-self.pos()[p]) \
-                - (another.pos()[i]-another.pos()[p])
-            # diff_pos_vel = 0 # fail to calulate local velocity, sorry
-            error += torch.dot(diff_pose_pos, diff_pose_pos) 
-            # + 0.1 * torch.dot(diff_pos_vel, diff_pos_vel)
-        error /= len(skeleton)            
-        return error
+    #     for i in range(1,len(skeleton.nodes)):
+    #         # _, diff_pose_pos = self._pb_client.getAxisAngleFromQuaternion(
+    #         #     self._pb_client.getDifferenceQuaternion(sim_joint_ps[i], kin_joint_ps[i])
+    #         # )
+    #         # diff_pos_vel = sim_joint_vs[i] - kin_joint_vs[i]
+    #         p = skeleton.parents[i]
+    #         diff_pose_pos = (self.pos()[i]-self.pos()[p]) \
+    #             - (another.pos()[i]-another.pos()[p])
+    #         # diff_pos_vel = 0 # fail to calulate local velocity, sorry
+    #         error += torch.dot(diff_pose_pos, diff_pose_pos) 
+    #         # + 0.1 * torch.dot(diff_pos_vel, diff_pos_vel)
+    #     error /= len(skeleton)            
+    #     return error
 
-    def compute_root_cost(self, another):
-        # done!
-        """ orientation + angular velocity of root in world coordinate """
-        error = 0.0
-        diff_root_Q = another.root_tensor[0:3] - self.root_tensor[0:3]
-        diff_root_w = another.root_tensor[10:13] - self.root_tensor[10:13]
-        error = 1.0 * (diff_root_Q* diff_root_Q) + 0.1 * (diff_root_w* diff_root_w)
-        return error.sum()
+    # def compute_root_cost(self, another):
+    #     # done!
+    #     """ orientation + angular velocity of root in world coordinate """
+    #     error = 0.0
+    #     diff_root_Q = another.root_tensor[0:3] - self.root_tensor[0:3]
+    #     diff_root_w = another.root_tensor[10:13] - self.root_tensor[10:13]
+    #     error = 1.0 * (diff_root_Q* diff_root_Q) + 0.1 * (diff_root_w* diff_root_w)
+    #     return error.sum()
 
-    def compute_ee_cost(self, another):
-        # done!
-        """ end-effectors (height) in world coordinate """
-        error = 0.0
-        for nid in self.ees_z:
-            diff_pos = another.pos()[nid] - self.pos()[nid]
-            diff_pos = diff_pos[up_axis] # only consider Z-component (height)
-            error += (diff_pos * diff_pos).item()
-        error /= len(self.ees_z)
-        return error
+    # def compute_ee_cost(self, another):
+    #     # done!
+    #     """ end-effectors (height) in world coordinate """
+    #     error = 0.0
+    #     for nid in self.ees_z:
+    #         diff_pos = another.pos()[nid] - self.pos()[nid]
+    #         diff_pos = diff_pos[up_axis] # only consider Z-component (height)
+    #         error += (diff_pos * diff_pos).item()
+    #     error /= len(self.ees_z)
+    #     return error
 
   
             
-    def compute_balance_cost(self, another):
-        """ balance cost plz see the SamCon paper """
-        error = 0.0
-        sim_com_pos, sim_com_vel = self.com_pos, self.com_vel
-        kin_com_pos, kin_com_vel = another.com_pos, another.com_vel
+    # def compute_balance_cost(self, another):
+    #     """ balance cost plz see the SamCon paper """
+    #     error = 0.0
+    #     sim_com_pos, sim_com_vel = self.com_pos, self.com_vel
+    #     kin_com_pos, kin_com_vel = another.com_pos, another.com_vel
 
-        for nid in self.ees_xy:
-            sim_planar_vec = sim_com_pos - self.pos()[nid] 
-            kin_planar_vec = kin_com_pos - another.pos()[nid]
-            diff_planar_vec = sim_planar_vec - kin_planar_vec
-            diff_planar_vec[up_axis] = 0
-            # diff_planar_vec = diff_planar_vec[:up_axis] + diff_planar_vec[up_axis+1:] # only consider XY-component
-            error += diff_planar_vec * diff_planar_vec
-        error /= len(self.ees_xy) * 1.7
-        return error.sum()
+    #     for nid in self.ees_xy:
+    #         sim_planar_vec = sim_com_pos - self.pos()[nid] 
+    #         kin_planar_vec = kin_com_pos - another.pos()[nid]
+    #         diff_planar_vec = sim_planar_vec - kin_planar_vec
+    #         diff_planar_vec[up_axis] = 0
+    #         # diff_planar_vec = diff_planar_vec[:up_axis] + diff_planar_vec[up_axis+1:] # only consider XY-component
+    #         error += diff_planar_vec * diff_planar_vec
+    #     error /= len(self.ees_xy) * 1.7
+    #     return error.sum()
     
-    def compute_com_cost(self, another):
-        """ CoM (position linVel) in world coordinate """
-        error = 0.0
-        sim_com_pos, sim_com_vel = self.com_pos, self.com_vel
-        kin_com_pos, kin_com_vel = another.com_pos, another.com_vel
+    # def compute_com_cost(self, another):
+    #     """ CoM (position linVel) in world coordinate """
+    #     error = 0.0
+    #     sim_com_pos, sim_com_vel = self.com_pos, self.com_vel
+    #     kin_com_pos, kin_com_vel = another.com_pos, another.com_vel
         
-        diff_com_pos = sim_com_pos - kin_com_pos
-        diff_com_vel = sim_com_vel - kin_com_vel
+    #     diff_com_pos = sim_com_pos - kin_com_pos
+    #     diff_com_vel = sim_com_vel - kin_com_vel
         
-        error = 1.0 * (diff_com_pos * diff_com_pos) + 0.1 * (diff_com_vel * diff_com_vel)
-        return error.sum()
+    #     error = 1.0 * (diff_com_pos * diff_com_pos) + 0.1 * (diff_com_vel * diff_com_vel)
+    #     return error.sum()
 
         
 def compute_full_ee_cost(BODY, another):
@@ -256,23 +257,23 @@ def compute_full_ee_cost(BODY, another):
 
 def compute_full_balance_cost(BODY, another):
     POS, VEL = BODY[:,:,0:3], BODY[:,:,7:10]
-    COM_POS = (another.properties_mass * POS).sum(axis=1) / another.total_mass
-    COM_VEL = (another.properties_mass * VEL).sum(axis=1) / another.total_mass
+    COM_POS = (another.properties_mass.unsqueeze(-1).unsqueeze(0) * POS).sum(axis=1) / another.total_mass
+    COM_VEL = (another.properties_mass.unsqueeze(-1).unsqueeze(0) * VEL).sum(axis=1) / another.total_mass
     
-    diff_com_pos = COM_POS - another.com_pos
-    diff_com_vel = COM_VEL - another.com_vel
+    diff_com_pos = COM_POS - another.com_pos.unsqueeze(0)
+    diff_com_vel = COM_VEL - another.com_vel.unsqueeze(0)
     
     error_com = 1.0 * (diff_com_pos * diff_com_pos) + 0.1 * (diff_com_vel * diff_com_vel)
     error_com = error_com.sum(axis=-1)
         
     sim_planar_vec = COM_POS.unsqueeze(1) - BODY[:,another.ees_xy,0:3]
-    kin_planar_vec = another.com_pos - another.pos()[another.ees_xy,:] 
+    kin_planar_vec = another.com_pos.unsqueeze(0) - another.pos()[another.ees_xy,:] 
     diff_planar_vec = sim_planar_vec - kin_planar_vec
     diff_planar_vec[:,:,up_axis] = 0 # only consider XY-component
     error_balance = (diff_planar_vec * diff_planar_vec).sum(axis=-1).sum(axis=-1)
-    error_balance /= len(another.ees_xy) * 1.7
+    error_balance /= len(another.ees_xy)
     
-    return [error_com, error_balance]
+    return [error_com, error_balance/1.7]
     
 def compute_full_root_cost(ROOT, another):
     # done!

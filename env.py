@@ -4,7 +4,7 @@ import isaacgym
 import torch
 import numpy as np
 from ref_motion import compute_motion
-from scipy.spatial.transform import Rotation as sRot
+from scipy.spatial.transform import Rotation
 
 from cfg import n_links, controllable_links, dofs, up_axis 
 
@@ -17,7 +17,7 @@ class Simulation:
         300,300,300,300,200,200,200,
     ]
     ees_z = [14,8,11,5]
-    ees_xy = [14,8,11,5,2]
+    ees_xy = [14,8,11,5,2][:-1]
     # {'head': 2, 'left_foot': 14, 'left_hand': 8, 'left_lower_arm': 7, 
     #  'left_shin': 13, 'left_thigh': 12, 'left_upper_arm': 6, 
     #  'pelvis': 0, 'right_foot': 11, 'right_hand': 5, 'right_lower_arm': 4, 
@@ -27,9 +27,9 @@ class Simulation:
         self.param = param
         self.gym = gym
         self.sim = sim
+        self.skeleton = skeleton
         self.idk = idk
         self.device = device
-        self.skeleton = skeleton
         spacing = 8.0
         if up_axis==2:
             lower = gymapi.Vec3(-spacing, -spacing, 0.0)
@@ -55,6 +55,11 @@ class Simulation:
         self.com_pos = None
         assert(gym.set_actor_dof_properties(self.env, self.actor_handle, props))
         
+    def init_skeleton(self, geoms, weights, total_weight):
+        self.geoms = geoms
+        self.weights = weights
+        self.total_weight = total_weight
+        
     def build_tensor(self):
         _rigid_body_states = self.gym.acquire_rigid_body_state_tensor(self.sim)
         self.rigid_body_states = gymtorch.wrap_tensor(_rigid_body_states)\
@@ -68,14 +73,14 @@ class Simulation:
             [self.idk*self.dof_len:self.idk*self.dof_len+self.dof_len]
             
         # not changing quantitys
-        self.properties = self.gym.get_actor_rigid_body_properties(self.env, self.actor_handle)
+        # self.properties = self.gym.get_actor_rigid_body_properties(self.env, self.actor_handle)
         
-        self.properties_mass = torch.zeros(15)
-        self.total_mass = 0
-        for i in range(len(self.properties)):
-            self.properties_mass[i] = self.properties[i].mass
-            self.total_mass += self.properties[i].mass
-        self.properties_mass = self.properties_mass.to(self.device)
+        # self.properties_mass = torch.zeros(15)
+        # self.total_mass = 0
+        # for i in range(len(self.properties)):
+        #     self.properties_mass[i] = self.properties[i].mass
+        #     self.total_mass += self.properties[i].mass
+        # self.properties_mass = self.properties_mass.to(self.device)
         
         
     def vector_up(self, val: float, base_vector=None):
@@ -96,6 +101,9 @@ class Simulation:
     
     def pos(self):
         return self.rigid_body_states[:,0:3]
+
+    def orient(self):
+        return self.rigid_body_states[:,3:7]
  
     def history(self):
         return [[self.root_tensor.clone(), self.joint_tensor.clone(), self.com_pos], self.trajectory.copy()]
@@ -138,14 +146,23 @@ class Simulation:
             
     #     return compute_motion(30, self.skeleton, q.unsqueeze(0), p.unsqueeze(0), early_stop=True)
     
-    def compute_com_pos_vel(self, _pos, _vel):
-        com_pos = (self.properties_mass.unsqueeze(-1) * _pos).sum(axis=0).squeeze(0)
-        com_vel = (self.properties_mass.unsqueeze(-1) * _vel).sum(axis=0).squeeze(0)
-        self.com_pos, self.com_vel = com_pos / self.total_mass, com_vel / self.total_mass
+    def compute_com_pos_vel(self, pos, orient):
+        orient = Rotation.from_quat(orient.cpu())
+        orient[1:] *= orient[self.skeleton.parents[1:]].inv()
+        
+        com_pos = torch.zeros(3, device = self.device)
+        com_vel = torch.zeros(3, device = self.device)
+        for i in range(0,len(orient)):
+            com_pos += self.weights[i] * \
+                (pos[i]+torch.from_numpy(orient[i].apply(self.geoms[i])).to(self.device))
+        
+        
+        # com_pos = (self.properties_mass.unsqueeze(-1) * _pos).sum(axis=0).squeeze(0)
+        # com_vel = (self.properties_mass.unsqueeze(-1) * _vel).sum(axis=0).squeeze(0)
+        self.com_pos, self.com_vel = com_pos / self.total_weight, com_vel / self.total_weight
     
     def compute_com(self):
-        self.compute_com_pos_vel(self.rigid_body_states[:,0:3], \
-                        self.rigid_body_states[:,7:10])
+        self.compute_com_pos_vel(self.pos(), self.orient())
         
         
         
@@ -248,17 +265,23 @@ class Simulation:
 
         
 def compute_full_ee_cost(BODY, another):
-    diff_pos = another.pos()[another.ees_z,:] - BODY[:,another.ees_z,0:3]
+    diff_pos = another.pos()[another.ees_z,:].unsqueeze(0) - BODY[:,another.ees_z,0:3]
     diff_pos = diff_pos[:,:,up_axis] # only consider Z-component (height)
     error = (diff_pos * diff_pos).sum(axis=-1)
     error /= len(another.ees_z)
     return [error]
 
 
-def compute_full_balance_cost(BODY, another):
+def compute_full_balance_cost(envs, BODY, another):
     POS, VEL = BODY[:,:,0:3], BODY[:,:,7:10]
-    COM_POS = (another.properties_mass.unsqueeze(-1).unsqueeze(0) * POS).sum(axis=1) / another.total_mass
-    COM_VEL = (another.properties_mass.unsqueeze(-1).unsqueeze(0) * VEL).sum(axis=1) / another.total_mass
+    # COM_POS = (another.properties_mass.unsqueeze(-1).unsqueeze(0) * POS).sum(axis=1) / another.total_mass
+    # COM_VEL = (another.properties_mass.unsqueeze(-1).unsqueeze(0) * VEL).sum(axis=1) / another.total_mass
+    
+    for i in range(0,len(envs)-1):
+        envs[i].compute_com()
+    COM_POS = torch.concat([envs[i].com_pos.unsqueeze(0) for i in range(0,len(envs)-1)], axis=0)
+    COM_VEL = torch.concat([envs[i].com_vel.unsqueeze(0) for i in range(0,len(envs)-1)], axis=0)
+
     
     diff_com_pos = COM_POS - another.com_pos.unsqueeze(0)
     diff_com_vel = COM_VEL - another.com_vel.unsqueeze(0)
@@ -266,7 +289,7 @@ def compute_full_balance_cost(BODY, another):
     error_com = 1.0 * (diff_com_pos * diff_com_pos) + 0.1 * (diff_com_vel * diff_com_vel)
     error_com = error_com.sum(axis=-1)
         
-    sim_planar_vec = COM_POS.unsqueeze(1) - BODY[:,another.ees_xy,0:3]
+    sim_planar_vec = COM_POS.unsqueeze(1) - POS[:,another.ees_xy,:]
     kin_planar_vec = another.com_pos.unsqueeze(0) - another.pos()[another.ees_xy,:] 
     diff_planar_vec = sim_planar_vec - kin_planar_vec
     diff_planar_vec[:,:,up_axis] = 0 # only consider XY-component
@@ -278,7 +301,7 @@ def compute_full_balance_cost(BODY, another):
 def compute_full_root_cost(ROOT, another):
     # done!
     """ orientation + angular velocity of root in world coordinate """
-    diff_root_Q = another.root_tensor[0:3] - ROOT[:,0:3]
-    diff_root_w = another.root_tensor[10:13] - ROOT[:,10:13]
+    diff_root_Q = another.root_tensor[0:3].unsqueeze(0) - ROOT[:,0:3]
+    diff_root_w = another.root_tensor[10:13].unsqueeze(0)- ROOT[:,10:13]
     error = 1.0 * (diff_root_Q* diff_root_Q) + 0.1 * (diff_root_w* diff_root_w)
     return [error.sum(axis=-1)]

@@ -22,7 +22,7 @@ init_pose = './assets/motions/clips_walk.yaml'
 character_model = './assets/humanoid.xml'
 asset_root = "/mnt/data/caoyuan/issac/samcon/assets/"
 asset_file = "humanoid.xml"
-SSStart = 30
+SSStart = 0
 
 
 
@@ -46,10 +46,18 @@ def get_noisy(joint_pos, joint_vel, reference):
     
     return joint_pos2 #pos-driven pd control
 
-def get_full_noisy(joint_pos, limits, device):
+def get_full_noisy(joint_pos, limits_gpu, device):
     # noise = np.random.random(joint_pos.shape[0]) # sample from [0, 1) uniform distribution
     noise = torch.rand(joint_pos.shape, device = device)
-    return joint_pos + (noise*limits_gpu*np.pi).to(device)
+    noise = noise * limits_gpu
+    
+    joint_pos2 = joint_pos + noise
+    while torch.any(joint_pos2 > np.pi):
+        joint_pos2[joint_pos2 > np.pi] -= 2 * np.pi
+    while torch.any(joint_pos2 < -np.pi):
+        joint_pos2[joint_pos2 < -np.pi] += 2 * np.pi
+
+    return joint_pos2
     
 
 
@@ -72,11 +80,11 @@ def read_data(gym, sim, device='cpu'):
     asset = gym.load_asset(sim, asset_root, asset_file, asset_opt)
     return asset, reference
 
-def build_sim(gym, simulation_dt, use_gpu = False):
+def build_sim(gym, simulation_dt, use_gpu = False, device = None):
     sim_params = gymapi.SimParams()
     # set device
     if use_gpu:
-        compute_device_id, graphics_device_id = 2, 2
+        compute_device_id, graphics_device_id = int(device[-1]),int(device[-1])
     else:
         compute_device_id, graphics_device_id = 0, 0
     sim_params.use_gpu_pipeline = use_gpu
@@ -115,19 +123,23 @@ def build_sim(gym, simulation_dt, use_gpu = False):
 
 
 
+
 if __name__ == '__main__':
     all_target_states = []
     
     sample_dt = simulation_dt
     gym = gymapi.acquire_gym()
-    nSample, nSave = 10000, 500
+    nSample, nSave = 10000, 200
     num_envs = nSample
-    nExtend = nSample // nSave
-    device = 'cuda:2'
-    sim = build_sim(gym, simulation_dt, use_gpu=True)
+    nExtend = [100 for i in range(0,50)] + [40 for i in range(0,100)] + [20 for i in range(0,50)]
+    device = 'cuda:4'
+    sim = build_sim(gym, simulation_dt, use_gpu=True, device=device)
     asset, reference = read_data(gym, sim, device = device)
     limits_gpu = torch.tensor(limits).to(device)
     param_gpu = torch.tensor(param).to(device)
+    geoms_gpu = reference.skeleton.geoms.to(device)
+    weights_gpu = reference.skeleton.weights.to(device)
+    total_weight_gpu = reference.skeleton.total_weight.to(device)
     # build each environments(extra is for normal calculation)
     envs = []
     for i in range(num_envs+1):
@@ -135,8 +147,9 @@ if __name__ == '__main__':
     refresh(gym, sim)
     for ei in envs:
         ei.build_tensor()
+        # ei.init_skeleton(geoms_gpu, weights_gpu, total_weight_gpu)
+        ei.init_skeleton(reference.skeleton.geoms, reference.skeleton.weights, reference.skeleton.total_weight)
     _rigid_body_states = gym.acquire_rigid_body_state_tensor(sim)
-    print(gymtorch.wrap_tensor(_rigid_body_states).shape)
     BODY = gymtorch.wrap_tensor(_rigid_body_states)[:-15].reshape(-1,15,13)
 
     _root_tensor = gym.acquire_actor_root_state_tensor(sim)
@@ -146,7 +159,6 @@ if __name__ == '__main__':
     
 
     
-    rounds = simulation_dt // sample_dt
     root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),SSStart/simulation_dt)
     best2 = [[root_tensor, joint_tensor], []]
     best = [best2 for i in range(nSave)]
@@ -169,85 +181,89 @@ if __name__ == '__main__':
        
         results = []
         results_for_sort = []
-        for id in range(0, nSave, num_envs//nExtend):
-            SS = time.time()
-            # setting all to source status
-            ROOT_TENSOR, JOINT_TENSOR = [], []
-            for i in range(0, num_envs//nExtend):
-                for j in range(0, nExtend):                  
-                    envs[i*nExtend+j].overlap(best[id+i][0], best[id+i][1].copy())
+            
+        SS = time.time()
+        # setting all to source status
+        ROOT_TENSOR, JOINT_TENSOR = [], []
+        tot = 0
+        for i in range(0, nSave):
+            for j in range(0, nExtend[i]):                  
+                envs[tot].overlap(best[i][0], best[i][1].copy())
+                tot += 1
 
-                    root_tensor2, joint_tensor2 = best[id+i][0][0], best[id+i][0][1]
-                    ROOT_TENSOR += [root_tensor2.unsqueeze(0)]
-                    JOINT_TENSOR += [joint_tensor2]
-                    
-            ROOT_TENSOR += [root_tensor_old.unsqueeze(0)]
-            JOINT_TENSOR += [joint_tensor_old]
-            
-            ROOT_TENSOR, JOINT_TENSOR = \
-                torch.cat(ROOT_TENSOR, axis=0),torch.cat(JOINT_TENSOR, axis=0) 
+                root_tensor2, joint_tensor2 = best[i][0][0], best[i][0][1]
+                ROOT_TENSOR += [root_tensor2.unsqueeze(0)]
+                JOINT_TENSOR += [joint_tensor2]
+                
+        ROOT_TENSOR += [root_tensor_old.unsqueeze(0)]
+        JOINT_TENSOR += [joint_tensor_old]
+        
+        ROOT_TENSOR, JOINT_TENSOR = \
+            torch.cat(ROOT_TENSOR, axis=0),torch.cat(JOINT_TENSOR, axis=0) 
 
-            
-            print('load initial states', time.time()-SS)
-            
-            SS = time.time()
-            assert(gym.set_actor_root_state_tensor(sim,
-                gymtorch.unwrap_tensor(ROOT_TENSOR)))
-            assert(gym.set_dof_state_tensor(sim,
-                gymtorch.unwrap_tensor(JOINT_TENSOR)))
-            print('GYM set initial state',time.time()-SS)
-            
-            
-            # making pd-control's goal
-            SS = time.time()
-            target_state = []
-            for i in range(0, num_envs//nExtend):
-                for j in range(0, nExtend):
-                    # target_state2 = get_noisy(joint_pos, joint_vel, reference)
-                    envs[i*nExtend+j].act(len(target_state), record=1)
-                    target_state.append(joint_pos.unsqueeze(0))
+        
+        print('load initial states', time.time()-SS)
+        
+        SS = time.time()
+        assert(gym.set_actor_root_state_tensor(sim,
+            gymtorch.unwrap_tensor(ROOT_TENSOR)))
+        assert(gym.set_dof_state_tensor(sim,
+            gymtorch.unwrap_tensor(JOINT_TENSOR)))
+        print('GYM set initial state',time.time()-SS)
+        
+        
+        # making pd-control's goal
+        SS = time.time()
+        target_state = []
+        tot = 0
+        for i in range(0, nSave):
+            for j in range(0, nExtend[i]):      
+                # target_state2 = get_noisy(joint_pos, joint_vel, reference)
+                envs[tot].act(len(target_state), record=1)
+                tot += 1
+                target_state.append(joint_pos.unsqueeze(0))
 
-            target_state = torch.cat(target_state, axis=0)
-            target_state = get_full_noisy(target_state, limits_gpu, device)
-            target_state = torch.cat((target_state,joint_pos.unsqueeze(0)), axis=0)
-            all_target_states.append(target_state)
-            print('getting target states',time.time()-SS)
-            # simulating...
-            for k in range(rounds):
-                SS = time.time()
-                assert(gym.set_dof_position_target_tensor(sim, gymtorch.unwrap_tensor(target_state)))
-                print('GYM set target states', time.time()-SS)
-                SS = time.time()
-                gym.simulate(sim)
-                gym.fetch_results(sim, True)
-                refresh(gym, sim)
-                print('GYM stimulate and refresh states',time.time()-SS)
+        target_state = torch.cat(target_state, axis=0)
+        target_state = get_full_noisy(target_state, limits_gpu, device)
+        target_state = torch.cat((target_state,joint_pos.unsqueeze(0)), axis=0)
+        all_target_states.append(target_state)
+        print('getting target states',time.time()-SS)
+        # simulating...
             
-            # calculating cost
-            SS = time.time()  
-            # for ie in envs:
-            #     ie.compute_com()
-            envs[num_envs].compute_com()
-            print('compute COM',time.time()-SS)
-            SS = time.time()  
-            full_cost = []
-            full_cost += [torch.zeros(num_envs, device=device)]
-            full_cost += compute_full_ee_cost(BODY,envs[num_envs])
-            full_cost += compute_full_root_cost(ROOT,envs[num_envs])
-            full_cost += compute_full_balance_cost(BODY,envs[num_envs])
-            
-            full_cost = torch.stack(full_cost,axis=0)
-            total_cost = (full_cost.transpose(1,0) * param_gpu).sum(-1)
-            # print(full_cost,total_cost)
-            # exit(0)
-            print('compute cost',time.time()-SS)
-            results_for_sort = total_cost
-            SS = time.time()  
-            
-            for i in range(num_envs):
-                results.append([total_cost[i],envs[i].history()])
-            
-            print('clean up ',time.time()-SS)
+        SS = time.time()
+        assert(gym.set_dof_position_target_tensor(sim, gymtorch.unwrap_tensor(target_state)))
+        print('GYM set target states', time.time()-SS)
+        SS = time.time()
+        gym.simulate(sim)
+        gym.fetch_results(sim, True)
+        refresh(gym, sim)
+        print('GYM stimulate and refresh states',time.time()-SS)
+        
+        # calculating cost
+        SS = time.time()  
+        # for ie in envs:
+        #     ie.compute_com()
+        envs[num_envs].compute_com()
+        print('compute COM',time.time()-SS)
+        SS = time.time()  
+        full_cost = []
+        full_cost += [torch.zeros(num_envs, device=device)]
+        full_cost += compute_full_ee_cost(BODY, envs[num_envs])
+        full_cost += compute_full_root_cost(ROOT, envs[num_envs])
+        full_cost += compute_full_balance_cost(envs, BODY, envs[num_envs])
+        
+        full_cost = torch.stack(full_cost,axis=0)
+        total_cost = (full_cost.transpose(1,0) * param_gpu.unsqueeze(0)).sum(-1)
+        # print(full_cost,total_cost)
+        # exit(0)
+        print('compute cost',time.time()-SS)
+        results_for_sort = total_cost
+        SS = time.time()  
+        
+        for i in range(num_envs):
+            results.append([total_cost[i],envs[i].history()])
+        
+        print('clean up ',time.time()-SS)
         # store nSample better ones
         SS = time.time()  
         ids = torch.argsort(results_for_sort)

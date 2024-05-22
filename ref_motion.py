@@ -12,7 +12,7 @@ from utils import quat2expmap,  quatconj, quatmultiply, slerp, quat2expmap, rota
 
 
 Skeleton = namedtuple("Skeleton",
-    "nodes parents trans rot"
+    "nodes parents trans rot geoms weights total_weight"
 )
 Motion = namedtuple("Motion",
     "fps pos orient ang_vel lin_vel local_q local_p local_vel"
@@ -32,6 +32,8 @@ def load_mjcf(filename: str):
     nodes = []
     parents = []
     t, r = [], []
+    geoms = []
+    weights = []
     def parse(node, pid):
         n = node.attrib.get("name")
         p = np.array(list(map(float, node.attrib.get("pos").split())))
@@ -42,21 +44,69 @@ def load_mjcf(filename: str):
         else:
             q = list(map(float, q.split()))
             q = np.array([q[1], q[2], q[3], q[0]])
+            
+            
 
         nodes.append(n)
         parents.append(pid)
         t.append(p)
         r.append(q)
         nid = len(nodes)-1
+        
         for child in node.findall("body"):
             parse(child, nid)
+        
+        geom = np.zeros(3)
+        weight = 0
+        for g in node.findall("geom"):
+            type = g.attrib.get("type")
+            size = g.attrib.get("size")
+            density = float(g.attrib.get("density"))
+            if type == 'sphere' :
+                size = float(size)
+                pos = g.attrib.get("pose")
+                if pos == None:
+                    pos = "0.0 0.0 0.0"
+                pos = np.asarray([float(i) for i in pos.split()])
+                w = size*size*size*np.pi*4/3
+                w*=density
+                geom += pos * w
+                weight += w
+            elif type == 'capsule':
+                size = float(size)
+                fromto = np.asarray([float(i) for i in g.attrib.get("fromto").split()]).reshape(2,3)
+                w = size*size*size*np.pi*4/3 + \
+                    (((fromto[0]-fromto[1])*(fromto[0]-fromto[1])).sum(-1)**0.5)*size*size*np.pi
+                w*=density
+                pos = (fromto[0] + fromto[1]) / 2
+                geom += pos * w
+                weight += w
+            elif type == 'box':
+                size = [float(i) for i in size.split()]
+                pos = g.attrib.get("pose")
+                if pos == None:
+                    pos = "0.0 0.0 0.0"
+                pos = np.asarray([float(i) for i in pos.split()])
+                w = size[0]*size[1]*size[2]*8
+                w*=density
+                geom += pos * w
+                weight += w
+            else:
+                assert(0)
+
+        geoms.append((geom/weight))
+        weights.append(weight)
 
     parse(root, -1)
+
     return Skeleton(
         nodes = nodes,
         parents = parents,
         trans = torch.from_numpy(np.array(t, dtype=float)),
-        rot = torch.from_numpy(np.array(r, dtype=float))
+        rot = torch.from_numpy(np.array(r, dtype=float)),
+        geoms = torch.from_numpy(np.array(geoms, dtype=float)),
+        weights = torch.from_numpy(np.array(weights, dtype=float)),
+        total_weight = torch.from_numpy(np.array(weights, dtype=float)).sum(-1)
     )
 
 def compute_motion(fps:int, skeleton: Skeleton, local_q, local_p, early_stop = False):

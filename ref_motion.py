@@ -45,16 +45,11 @@ def load_mjcf(filename: str):
             q = list(map(float, q.split()))
             q = np.array([q[1], q[2], q[3], q[0]])
             
-            
-
         nodes.append(n)
         parents.append(pid)
         t.append(p)
         r.append(q)
         nid = len(nodes)-1
-        
-        for child in node.findall("body"):
-            parse(child, nid)
         
         geom = np.zeros(3)
         weight = 0
@@ -96,9 +91,11 @@ def load_mjcf(filename: str):
 
         geoms.append((geom/weight))
         weights.append(weight)
+        
+        for child in node.findall("body"):
+            parse(child, nid)
 
     parse(root, -1)
-
     return Skeleton(
         nodes = nodes,
         parents = parents,

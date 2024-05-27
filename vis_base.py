@@ -8,7 +8,8 @@ from ref_motion import ReferenceMotion
 from scipy.spatial.transform import Rotation as sRot
 from tqdm import tqdm
 
-from main import read_data, build_sim, simulation_dt, save_file_name, SSStart
+from main import *
+from cfg import *
 
 
 if __name__ == '__main__':

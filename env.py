@@ -5,8 +5,9 @@ import torch
 import numpy as np
 from ref_motion import compute_motion
 from scipy.spatial.transform import Rotation
+import quaternion
 
-from cfg import n_links, controllable_links, dofs, up_axis 
+from cfg import n_links, controllable_links, dofs, up_axis, simulation_dt
 
 class Simulation:
     stiff = [
@@ -101,9 +102,14 @@ class Simulation:
     
     def pos(self):
         return self.rigid_body_states[:,0:3]
-
     def orient(self):
-        return self.rigid_body_states[:,3:7]
+        # w firsz
+        return torch.concat([self.rigid_body_states[:,6:7],self.rigid_body_states[:,3:6]],axis=-1)
+    def vel(self):
+        return self.rigid_body_states[:,7:10]
+    def angular(self):
+        return self.rigid_body_states[:,10:13]
+ 
  
     def history(self):
         return [[self.root_tensor.clone(), self.joint_tensor.clone(), self.com_pos], self.trajectory.copy()]
@@ -146,23 +152,33 @@ class Simulation:
             
     #     return compute_motion(30, self.skeleton, q.unsqueeze(0), p.unsqueeze(0), early_stop=True)
     
-    def compute_com_pos_vel(self, pos, orient):
+    def compute_com_pos_vel(self, pos, orient, vel, angular):
         orient = Rotation.from_quat(orient.cpu())
-        orient[1:] *= orient[self.skeleton.parents[1:]].inv()
+        angular = Rotation.from_euler('xyz',angular.cpu()).as_rotvec() / (simulation_dt**0.5)
+        orient2 = Rotation.from_rotvec(angular).inv() * orient
+        
+        orient[1:] = orient[self.skeleton.parents[1:]].inv() * orient[1:] 
+        orient2[1:] = orient2[self.skeleton.parents[1:]].inv() * orient2[1:] 
+        # R0 R1 R2 R3
         
         com_pos = torch.zeros(3, device = self.device)
         com_vel = torch.zeros(3, device = self.device)
         for i in range(0,len(orient)):
+            # print(self.skeleton.nodes[i])
+            # print(pos[i],self.weights[i])
             com_pos += self.weights[i] * \
-                (pos[i]+torch.from_numpy(orient[i].apply(self.geoms[i])).to(self.device))
-        
+                (pos[i]+torch.from_numpy(orient[i].apply(self.skeleton.geoms[i])).to(self.device))
+            com_vel += self.weights[i] * \
+                (pos[i]-vel[i]/simulation_dt+torch.from_numpy(orient2[i].apply(self.skeleton.geoms[i])).to(self.device))
+        # exit(0)
+        com_vel = (com_pos - com_vel) * simulation_dt
         
         # com_pos = (self.properties_mass.unsqueeze(-1) * _pos).sum(axis=0).squeeze(0)
         # com_vel = (self.properties_mass.unsqueeze(-1) * _vel).sum(axis=0).squeeze(0)
         self.com_pos, self.com_vel = com_pos / self.total_weight, com_vel / self.total_weight
     
     def compute_com(self):
-        self.compute_com_pos_vel(self.pos(), self.orient())
+        self.compute_com_pos_vel(self.pos(), self.orient(), self.vel(), self.angular())
         
         
         
@@ -271,22 +287,45 @@ def compute_full_ee_cost(BODY, another):
     error /= len(another.ees_z)
     return [error]
 
-
 def compute_full_balance_cost(envs, BODY, another):
+    def my_inverse(x):
+        x = quaternion.as_float_array(x)
+
+        x[...,1:] = -x[...,1:]
+        x = quaternion.as_quat_array(x)
+        return x
     POS, VEL = BODY[:,:,0:3], BODY[:,:,7:10]
-    # COM_POS = (another.properties_mass.unsqueeze(-1).unsqueeze(0) * POS).sum(axis=1) / another.total_mass
-    # COM_VEL = (another.properties_mass.unsqueeze(-1).unsqueeze(0) * VEL).sum(axis=1) / another.total_mass
+
+    ORI = quaternion.as_quat_array(torch.concat([BODY[:,:,6:7],BODY[:,:,3:6]],axis=-1).cpu().numpy())
     
-    for i in range(0,len(envs)-1):
-        envs[i].compute_com()
-    COM_POS = torch.concat([envs[i].com_pos.unsqueeze(0) for i in range(0,len(envs)-1)], axis=0)
-    COM_VEL = torch.concat([envs[i].com_vel.unsqueeze(0) for i in range(0,len(envs)-1)], axis=0)
+    angular = quaternion.as_rotation_vector(quaternion.from_euler_angles(BODY[:,:,10:13].cpu().numpy())) / (simulation_dt**0.5)
+    ORI2 = my_inverse(quaternion.from_rotation_vector(angular)) * ORI
+
+    ORI[:,1:] = my_inverse(ORI[:, another.skeleton.parents[1:]]) * ORI[:,1:] 
+    ORI2[:,1:] = my_inverse(ORI2[:, another.skeleton.parents[1:]]) * ORI2[:,1:]
+    
+    
+    offset = torch.from_numpy(quaternion.as_rotation_matrix(ORI) @ another.geoms.unsqueeze(0).unsqueeze(-1).cpu().numpy()).squeeze(-1).to(POS.device)
+    offset2 = torch.from_numpy(quaternion.as_rotation_matrix(ORI2) @ another.geoms.unsqueeze(0).unsqueeze(-1).cpu().numpy()).squeeze(-1).to(POS.device)
+
+    COM_POS = (another.weights.unsqueeze(0).unsqueeze(-1) * (POS + offset)).sum(axis=-2)
+    COM_VEL = (another.weights.unsqueeze(0).unsqueeze(-1) * (POS - VEL/simulation_dt + offset2)).sum(axis=-2)
+    COM_VEL = (COM_POS - COM_VEL) * simulation_dt 
+    COM_POS, COM_VEL = COM_POS / another.total_weight, COM_VEL / another.total_weight
+    
+    
+    # for i in range(0,len(envs)-1):
+    #     envs[i].compute_com()
+    # COM_POS = torch.concat([envs[i].com_pos.unsqueeze(0) for i in range(0,len(envs)-1)], axis=0)
+    # COM_VEL = torch.concat([envs[i].com_vel.unsqueeze(0) for i in range(0,len(envs)-1)], axis=0)
 
     
+    # print('debug com',COM_POS[0],COM_POS[1],COM_POS[2])
+    # print('debug comvel',COM_VEL[0],COM_VEL[1],COM_VEL[2])
     diff_com_pos = COM_POS - another.com_pos.unsqueeze(0)
     diff_com_vel = COM_VEL - another.com_vel.unsqueeze(0)
     
-    error_com = 1.0 * (diff_com_pos * diff_com_pos) + 0.1 * (diff_com_vel * diff_com_vel)
+    error_com = 1.0 * (diff_com_pos * diff_com_pos) + 0 * 0.1 * (diff_com_vel * diff_com_vel)
     error_com = error_com.sum(axis=-1)
         
     sim_planar_vec = COM_POS.unsqueeze(1) - POS[:,another.ees_xy,:]

@@ -22,6 +22,8 @@ limits = [.1,.1,.1,
 
 
 # param = [5,10,60,30,50]
-param = [0, 10, 60, 30, 10]
+param = [0, 5, 20, 100, 50]
 
 up_axis = 2
+
+simulation_dt = 30

@@ -22,34 +22,34 @@ init_pose = './assets/motions/clips_walk.yaml'
 character_model = './assets/humanoid.xml'
 asset_root = "/mnt/data/caoyuan/issac/samcon/assets/"
 asset_file = "humanoid.xml"
-SSStart = 30
+SSStart = 0
 
 
 
 
-def get_noisy(joint_pos, joint_vel, reference):
+# def get_noisy(joint_pos, joint_vel, reference):
 
-    joint_pos2 = joint_pos.clone().reshape(-1)
-    noise = np.random.random(joint_pos2.shape[0]) # sample from [0, 1) uniform distribution
-    for i in range(len(limits)): # transform to [-limit, limit)
-        noise[i] = (2 * noise[i] - 1 ) * limits[i] * np.pi
+#     joint_pos2 = joint_pos.clone().reshape(-1)
+#     noise = np.random.random(joint_pos2.shape[0]) # sample from [0, 1) uniform distribution
+#     for i in range(len(limits)): # transform to [-limit, limit)
+#         noise[i] = (2 * noise[i] - 1 ) * limits[i] * np.pi
 
     
-    joint_pos2 += torch.from_numpy(noise).to(joint_pos2.device)
+#     joint_pos2 += torch.from_numpy(noise).to(joint_pos2.device)
     
-    while torch.any(joint_pos2 > np.pi):
-        joint_pos2[joint_pos2 > np.pi] -= 2 * np.pi
-    while torch.any(joint_pos2 < -np.pi):
-        joint_pos2[joint_pos2 < -np.pi] += 2 * np.pi
+#     while torch.any(joint_pos2 > np.pi):
+#         joint_pos2[joint_pos2 > np.pi] -= 2 * np.pi
+#     while torch.any(joint_pos2 < -np.pi):
+#         joint_pos2[joint_pos2 < -np.pi] += 2 * np.pi
 
-    joint_pos2 = joint_pos2.reshape(joint_pos.shape)
+#     joint_pos2 = joint_pos2.reshape(joint_pos.shape)
     
-    return joint_pos2 #pos-driven pd control
+#     return joint_pos2 #pos-driven pd control
 
 def get_full_noisy(joint_pos, limits_gpu, device):
     # noise = np.random.random(joint_pos.shape[0]) # sample from [0, 1) uniform distribution
     noise = torch.rand(joint_pos.shape, device = device)
-    noise = (noise * 2 - 1) * limits_gpu 
+    noise = (noise * 2 - 1) * limits_gpu * 3
     
     joint_pos2 = joint_pos + noise
     while torch.any(joint_pos2 > np.pi):
@@ -126,12 +126,12 @@ def build_sim(gym, simulation_dt, use_gpu = False, device = None):
 
 if __name__ == '__main__':
     all_target_states = []
-    np.random.seed(0)
+    torch.random.manual_seed(0)
     sample_dt = simulation_dt
     gym = gymapi.acquire_gym()
     nSample, nSave = 10000, 200
     num_envs = nSample
-    nExtend = [100 for i in range(0,50)] + [40 for i in range(0,100)] + [20 for i in range(0,50)]
+    nExtend = [500 for i in range(0,10)] + [50 for i in range(0,40)] + [20 for i in range(0,100)] + [20 for i in range(0,50)]
     device = 'cuda:3'
     sim = build_sim(gym, simulation_dt, use_gpu=True, device=device)
     asset, reference = read_data(gym, sim, device = device)
@@ -169,7 +169,7 @@ if __name__ == '__main__':
     
 
     
-    
+    CQDQ = []
     for fid in tqdm(range(SSStart+1,TIME)):
         
         root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),fid/simulation_dt)
@@ -188,7 +188,7 @@ if __name__ == '__main__':
         tot = 0
         for i in range(0, nSave):
             for j in range(0, nExtend[i]):                  
-                envs[tot].overlap(best[i][0], best[i][1].copy())
+                envs[tot].overlap(best[i][0].copy(), best[i][1].copy())
                 tot += 1
 
                 root_tensor2, joint_tensor2 = best[i][0][0], best[i][0][1]
@@ -219,14 +219,15 @@ if __name__ == '__main__':
         for i in range(0, nSave):
             for j in range(0, nExtend[i]):      
                 # target_state2 = get_noisy(joint_pos, joint_vel, reference)
-                envs[tot].act(len(target_state), record=1)
+                # envs[tot].act(len(target_state), record=1)
+                envs[tot].act(i, record=1)
                 tot += 1
                 target_state.append(joint_pos.unsqueeze(0))
-
+        assert(tot == num_envs)
         target_state = torch.cat(target_state, axis=0)
         target_state = get_full_noisy(target_state, limits_gpu, device)
         target_state = torch.cat((target_state,joint_pos.unsqueeze(0)), axis=0)
-        all_target_states.append(target_state)
+        all_target_states.append(target_state.clone())
         # print('getting target states',time.time()-SS)
         # simulating...
             
@@ -255,9 +256,6 @@ if __name__ == '__main__':
         full_cost = torch.stack(full_cost,axis=0)
         total_cost = (full_cost.transpose(1,0) * param_gpu.unsqueeze(0)).sum(-1)
         
-        print(full_cost.transpose(1,0)[0],total_cost[0])
-        # exit(0)
-        
         # print('compute cost',time.time()-SS)
         results_for_sort = total_cost
         SS = time.time()  
@@ -275,13 +273,23 @@ if __name__ == '__main__':
         
         best = [ results[ids[i]][1] for i in range(nSave)]
         envs[ids[0]].compute_com()
-        print('root_pos compare,', best[0][0][0][0:3], root_tensor[0:3])
-        print('com_pos compare,',  envs[ids[0]].com_pos, envs[num_envs].com_pos)
+        print(ids[0])
+        # print('root_pos compare,', best[0][0][0][0:3], root_tensor[0:3])
+        # print('com_pos compare,',  envs[ids[0]].com_pos, envs[num_envs].com_pos)
         # print('com_vel compare,',  envs[ids[0]].com_vel, envs[num_envs].com_vel)
+        CQDQ += [best.copy()]
         if fid % 10 == 0:
             saved_path = []
-            for i in range(len(best[0][1])):
-                saved_path+=[all_target_states[i][best[0][1][1]].cpu().unsqueeze(0).numpy()]
-            np.save(save_file_name, np.concatenate([saved_path],axis=0))
+            for i in range(len(envs[ids[0]].trajectory)):
+                print(envs[ids[0]].trajectory[i])
+                
+                candi = CQDQ[i][envs[ids[0]].trajectory[i]][0]
+                saved_path += [candi[0].cpu().numpy().reshape(-1),candi[1].cpu().numpy().reshape(-1)]
+                # saved_path+=[all_target_states[i][envs[ids[0]].trajectory[i]].cpu().unsqueeze(0).numpy()]
+
+            saved_path = np.concatenate(saved_path, axis=0).reshape(-1,13+28*2)
+            np.save(save_file_name, saved_path)
+            print(saved_path.shape)
+            # np.save(save_file_name, np.concatenate([saved_path],axis=0))
     
     gym.destroy_sim(sim)

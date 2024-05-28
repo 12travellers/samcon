@@ -325,7 +325,7 @@ def compute_full_balance_cost(envs, BODY, another):
     diff_com_pos = COM_POS - another.com_pos.unsqueeze(0)
     diff_com_vel = COM_VEL - another.com_vel.unsqueeze(0)
     
-    error_com = 1.0 * (diff_com_pos * diff_com_pos) + 0 * 0.1 * (diff_com_vel * diff_com_vel)
+    error_com = 2.0 * (diff_com_pos * diff_com_pos) + 0 * 0.1 * (diff_com_vel * diff_com_vel)
     error_com = error_com.sum(axis=-1)
         
     sim_planar_vec = COM_POS.unsqueeze(1) - POS[:,another.ees_xy,:]
@@ -335,7 +335,7 @@ def compute_full_balance_cost(envs, BODY, another):
     error_balance = (diff_planar_vec * diff_planar_vec).sum(axis=-1).sum(axis=-1)
     error_balance /= len(another.ees_xy)
     
-    return [error_com, error_balance/1.7]
+    return [error_balance/1.7, error_com]
     
 def compute_full_root_cost(ROOT, another):
     # done!

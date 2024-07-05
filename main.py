@@ -219,8 +219,8 @@ if __name__ == '__main__':
         for i in range(0, nSave):
             for j in range(0, nExtend[i]):      
                 # target_state2 = get_noisy(joint_pos, joint_vel, reference)
-                # envs[tot].act(len(target_state), record=1)
-                envs[tot].act(i, record=1)
+                envs[tot].act(len(target_state), record=1)
+                # envs[tot].act(i, record=1)
                 tot += 1
                 target_state.append(joint_pos.unsqueeze(0))
         assert(tot == num_envs)
@@ -280,16 +280,17 @@ if __name__ == '__main__':
         CQDQ += [best.copy()]
         if fid % 10 == 0:
             saved_path = []
+            saved_path2 = []
             for i in range(len(envs[ids[0]].trajectory)):
                 print(envs[ids[0]].trajectory[i])
                 
-                candi = CQDQ[i][envs[ids[0]].trajectory[i]][0]
-                saved_path += [candi[0].cpu().numpy().reshape(-1),candi[1].cpu().numpy().reshape(-1)]
-                # saved_path+=[all_target_states[i][envs[ids[0]].trajectory[i]].cpu().unsqueeze(0).numpy()]
+                # candi = CQDQ[i][envs[ids[0]].trajectory[i]][0]
+                # saved_path += [candi[0].cpu().numpy().reshape(-1),candi[1].cpu().numpy().reshape(-1)]
+                saved_path2+=[all_target_states[i][envs[ids[0]].trajectory[i]].cpu().unsqueeze(0).numpy()]
 
-            saved_path = np.concatenate(saved_path, axis=0).reshape(-1,13+28*2)
-            np.save(save_file_name, saved_path)
-            print(saved_path.shape)
-            # np.save(save_file_name, np.concatenate([saved_path],axis=0))
+            # saved_path = np.concatenate(saved_path, axis=0).reshape(-1,13+28*2)
+            # np.save(save_file_name, saved_path)
+            saved_path2 = np.concatenate([saved_path2],axis=0)
+            np.save(save_file_name.replace('.npy', '_control.npy'), saved_path2)
     
     gym.destroy_sim(sim)

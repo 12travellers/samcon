@@ -3,6 +3,7 @@ from isaacgym import gymapi
 import isaacgym
 import torch
 import numpy as np
+import copy
 from ref_motion import compute_motion
 from scipy.spatial.transform import Rotation
 import quaternion
@@ -91,7 +92,7 @@ class Simulation:
         return base_vector
 
     def overlap(self, old_state, old_traj):
-        self.trajectory = old_traj   
+        self.trajectory = copy.deepcopy(old_traj)  
         
     def cost(self, another):
         return self.compute_total_cost(another)
@@ -112,7 +113,7 @@ class Simulation:
  
  
     def history(self):
-        return [[self.root_tensor.clone(), self.joint_tensor.clone(), self.com_pos], self.trajectory.copy()]
+        return [[self.root_tensor.clone(), self.joint_tensor.clone(), self.com_pos], copy.deepcopy(self.trajectory)]
         
         
         

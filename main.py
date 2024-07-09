@@ -157,7 +157,7 @@ if __name__ == '__main__':
     
     gym.prepare_sim(sim)
     
-
+    
     
     root_tensor, link_tensor, joint_tensor = reference.state(np.asarray([0]),SSStart/simulation_dt)
     best2 = [[root_tensor, joint_tensor], []]
